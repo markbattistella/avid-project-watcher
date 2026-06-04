@@ -1,0 +1,13 @@
+bin/
+obj/
+.vs/
+.vscode/
+.idea/
+.dotnet_home/
+.nuget/
+TestResults/
+*.user
+*.suo
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal

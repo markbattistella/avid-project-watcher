@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "watchedLocations": [
+    {
+      "id": "11111111-1111-1111-1111-111111111111",
+      "name": "Projects",
+      "rootPath": "\\\\server\\Projects",
+      "enabled": true,
+      "folderTemplate": [
+        { "relativePath": "FOOTAGE" },
+        { "relativePath": "SEQUENCES" },
+        { "relativePath": "SFX" },
+        { "relativePath": "GFX" }
+      ],
+      "excludedPaths": [
+        { "path": "\\\\server\\Projects\\Archive" }
+      ]
+    }
+  ]
+}
