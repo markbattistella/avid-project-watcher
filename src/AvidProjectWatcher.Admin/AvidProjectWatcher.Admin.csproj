@@ -15,10 +15,16 @@
     <CFBundleName>Avid Project Watcher</CFBundleName>
     <CFBundleDisplayName>Avid Project Watcher</CFBundleDisplayName>
     <CFBundleIdentifier>com.markbattistella.avidprojectwatcher</CFBundleIdentifier>
+
+    <!-- Embeds the icon into the Windows exe so pinned taskbar shortcuts keep it.
+         icon.ico is generated from icon.png by the CI before dotnet publish runs.
+         The Condition means local builds without icon.ico don't error. -->
+    <ApplicationIcon Condition="Exists('$(MSBuildProjectDirectory)\Assets\icon.ico')">Assets\icon.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>
     <AvaloniaResource Include="Assets\icon.png" />
+    <AvaloniaResource Include="Assets\icon.ico" Condition="Exists('$(MSBuildProjectDirectory)\Assets\icon.ico')" />
   </ItemGroup>
 
   <ItemGroup>
