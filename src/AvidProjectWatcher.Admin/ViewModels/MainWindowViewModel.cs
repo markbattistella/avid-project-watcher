@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using AvidProjectWatcher.Core.Audit;
 using AvidProjectWatcher.Core.Backfill;
 using AvidProjectWatcher.Core.Models;
@@ -12,20 +13,28 @@ public sealed class MainWindowViewModel : ViewModelBase
     private BackfillReport? lastBackfillReport;
     private string statusText = "Daemon not connected.";
     private string backfillSummary = "No dry run has been run.";
+    private bool isBackfillPanelOpen;
+    private bool isLogsPanelOpen;
+    private bool isSettingsPanelOpen;
 
     public MainWindowViewModel()
     {
         AddScopeCommand = new RelayCommand(AddScope);
         RemoveScopeCommand = new RelayCommand(RemoveSelectedScope, () => SelectedScope is not null);
-        AddFolderCommand = new RelayCommand(AddFolder, () => SelectedScope is not null);
+        AddFolderCommand = new RelayCommand(AddFolder, () => HasSelectedRootPath);
         RemoveFolderCommand = new RelayCommand(RemoveFolder);
-        AddExclusionCommand = new RelayCommand(AddExclusion, () => SelectedScope is not null);
+        AddExclusionCommand = new RelayCommand(AddExclusion, () => HasSelectedRootPath);
         RemoveExclusionCommand = new RelayCommand(RemoveExclusion);
         SaveCommand = new AsyncRelayCommand(SaveAsync);
         RefreshCommand = new AsyncRelayCommand(LoadAsync);
-        RunBackfillDryRunCommand = new AsyncRelayCommand(RunBackfillDryRunAsync);
+        RunBackfillDryRunCommand = new AsyncRelayCommand(RunBackfillDryRunAsync, () => HasSelectedRootPath);
+        RunBackfillAllDryRunCommand = new AsyncRelayCommand(RunBackfillAllDryRunAsync, () => HasSelectedRootPath);
         CommitBackfillCommand = new AsyncRelayCommand(CommitBackfillAsync, () => lastBackfillReport?.AffectedProjectCount > 0);
         RefreshLogsCommand = new AsyncRelayCommand(RefreshLogsAsync);
+        OpenBackfillPanelCommand = new RelayCommand(OpenBackfillPanel, () => HasSelectedRootPath);
+        OpenLogsPanelCommand = new AsyncRelayCommand(OpenLogsPanelAsync, () => HasSelectedRootPath);
+        OpenSettingsPanelCommand = new RelayCommand(OpenSettingsPanel);
+        ClosePanelCommand = new RelayCommand(ClosePanels);
     }
 
     public ObservableCollection<ScopeEditorViewModel> Scopes { get; } = [];
@@ -39,12 +48,30 @@ public sealed class MainWindowViewModel : ViewModelBase
         get => selectedScope;
         set
         {
+            if (ReferenceEquals(selectedScope, value))
+            {
+                return;
+            }
+
+            if (selectedScope is not null)
+            {
+                selectedScope.PropertyChanged -= SelectedScope_PropertyChanged;
+            }
+
             if (SetProperty(ref selectedScope, value))
             {
+                if (selectedScope is not null)
+                {
+                    selectedScope.PropertyChanged += SelectedScope_PropertyChanged;
+                }
+
+                RaisePropertyChanged(nameof(HasSelectedRootPath));
                 RaiseCommandStates();
             }
         }
     }
+
+    public bool HasSelectedRootPath => SelectedScope?.HasRootPath == true;
 
     public string StatusText
     {
@@ -56,6 +83,24 @@ public sealed class MainWindowViewModel : ViewModelBase
     {
         get => backfillSummary;
         set => SetProperty(ref backfillSummary, value);
+    }
+
+    public bool IsBackfillPanelOpen
+    {
+        get => isBackfillPanelOpen;
+        set => SetProperty(ref isBackfillPanelOpen, value);
+    }
+
+    public bool IsLogsPanelOpen
+    {
+        get => isLogsPanelOpen;
+        set => SetProperty(ref isLogsPanelOpen, value);
+    }
+
+    public bool IsSettingsPanelOpen
+    {
+        get => isSettingsPanelOpen;
+        set => SetProperty(ref isSettingsPanelOpen, value);
     }
 
     public RelayCommand AddScopeCommand { get; }
@@ -76,9 +121,19 @@ public sealed class MainWindowViewModel : ViewModelBase
 
     public AsyncRelayCommand RunBackfillDryRunCommand { get; }
 
+    public AsyncRelayCommand RunBackfillAllDryRunCommand { get; }
+
     public AsyncRelayCommand CommitBackfillCommand { get; }
 
     public AsyncRelayCommand RefreshLogsCommand { get; }
+
+    public RelayCommand OpenBackfillPanelCommand { get; }
+
+    public AsyncRelayCommand OpenLogsPanelCommand { get; }
+
+    public RelayCommand OpenSettingsPanelCommand { get; }
+
+    public RelayCommand ClosePanelCommand { get; }
 
     public IReadOnlyList<AuditLogEntry> CurrentLogs => Logs.ToArray();
 
@@ -105,17 +160,33 @@ public sealed class MainWindowViewModel : ViewModelBase
 
     public async Task SaveAsync()
     {
+        if (await ApplyConfigAsync())
+        {
+            StatusText = "Changes applied.";
+        }
+    }
+
+    private async Task<bool> ApplyConfigAsync()
+    {
         var config = BuildConfig();
         var validationErrors = ValidateConfig(config);
         if (validationErrors.Count > 0)
         {
             StatusText = string.Join(" ", validationErrors);
-            return;
+            return false;
         }
 
-        await apiClient.SaveConfigAsync(config);
-        await RefreshStatusAsync();
-        StatusText = "Configuration saved.";
+        try
+        {
+            await apiClient.SaveConfigAsync(config);
+            await RefreshStatusAsync();
+            return true;
+        }
+        catch (HttpRequestException exception)
+        {
+            StatusText = $"Could not apply changes: {exception.Message}";
+            return false;
+        }
     }
 
     public async Task RefreshStatusAsync()
@@ -138,14 +209,10 @@ public sealed class MainWindowViewModel : ViewModelBase
     {
         var scope = new ScopeEditorViewModel
         {
-            Name = $"Scope {Scopes.Count + 1}",
+            Name = $"Watch Folder {Scopes.Count + 1}",
             Enabled = true
         };
 
-        scope.FolderTemplate.Add("FOOTAGE");
-        scope.FolderTemplate.Add("SEQUENCES");
-        scope.FolderTemplate.Add("SFX");
-        scope.FolderTemplate.Add("GFX");
         Scopes.Add(scope);
         SelectedScope = scope;
     }
@@ -157,8 +224,18 @@ public sealed class MainWindowViewModel : ViewModelBase
             return;
         }
 
-        var index = Scopes.IndexOf(SelectedScope);
-        Scopes.Remove(SelectedScope);
+        RemoveScope(SelectedScope);
+    }
+
+    public void RemoveScope(ScopeEditorViewModel scope)
+    {
+        var index = Scopes.IndexOf(scope);
+        if (index < 0)
+        {
+            return;
+        }
+
+        Scopes.Remove(scope);
         SelectedScope = Scopes.Count == 0
             ? null
             : Scopes.ElementAtOrDefault(Math.Clamp(index, 0, Scopes.Count - 1));
@@ -166,12 +243,23 @@ public sealed class MainWindowViewModel : ViewModelBase
 
     public void AddFolder()
     {
-        if (SelectedScope is null || string.IsNullOrWhiteSpace(SelectedScope.NewFolderName))
+        if (!HasSelectedRootPath || SelectedScope is null || string.IsNullOrWhiteSpace(SelectedScope.NewFolderName))
         {
             return;
         }
 
-        SelectedScope.FolderTemplate.Add(SelectedScope.NewFolderName.Trim());
+        var folderName = SelectedScope.NewFolderName.Trim();
+        var template = SelectedScope.FolderTemplate
+            .Select(folder => new FolderTemplateEntry(folder.Name))
+            .Append(new FolderTemplateEntry(folderName));
+        var validation = FolderTemplateValidator.ValidateFlatTemplate(template);
+        if (!validation.IsValid)
+        {
+            StatusText = validation.Errors[0];
+            return;
+        }
+
+        SelectedScope.FolderTemplate.Add(new FolderTemplateItemViewModel(folderName));
         SelectedScope.NewFolderName = string.Empty;
     }
 
@@ -182,12 +270,17 @@ public sealed class MainWindowViewModel : ViewModelBase
             return;
         }
 
-        SelectedScope.FolderTemplate.Remove(SelectedScope.SelectedFolder);
+        RemoveFolder(SelectedScope.SelectedFolder);
+    }
+
+    public void RemoveFolder(FolderTemplateItemViewModel folder)
+    {
+        SelectedScope?.FolderTemplate.Remove(folder);
     }
 
     public void AddExclusion()
     {
-        if (SelectedScope is null || string.IsNullOrWhiteSpace(SelectedScope.NewExcludedPath))
+        if (!HasSelectedRootPath || SelectedScope is null || string.IsNullOrWhiteSpace(SelectedScope.NewExcludedPath))
         {
             return;
         }
@@ -198,7 +291,7 @@ public sealed class MainWindowViewModel : ViewModelBase
 
     public void AddExclusionPath(string path)
     {
-        if (SelectedScope is null || string.IsNullOrWhiteSpace(path))
+        if (!HasSelectedRootPath || SelectedScope is null || string.IsNullOrWhiteSpace(path))
         {
             return;
         }
@@ -216,25 +309,66 @@ public sealed class MainWindowViewModel : ViewModelBase
             return;
         }
 
-        SelectedScope.ExcludedPaths.Remove(SelectedScope.SelectedExcludedPath);
+        RemoveExclusionPath(SelectedScope.SelectedExcludedPath);
+    }
+
+    public void RemoveExclusionPath(string path)
+    {
+        SelectedScope?.ExcludedPaths.Remove(path);
     }
 
     public async Task RunBackfillDryRunAsync()
     {
-        var request = new BackfillRequest
+        if (SelectedScope is null)
         {
-            ScopeIds = SelectedScope is null ? [] : [SelectedScope.Id]
-        };
-
-        lastBackfillReport = await apiClient.DryRunBackfillAsync(request);
-        BackfillPlans.Clear();
-        foreach (var plan in lastBackfillReport.Plans)
-        {
-            BackfillPlans.Add(plan);
+            StatusText = "Select a watch folder before running a selected-folder dry run.";
+            return;
         }
 
-        BackfillSummary = $"Dry run found {lastBackfillReport.AffectedProjectCount} affected project(s).";
-        CommitBackfillCommand.RaiseCanExecuteChanged();
+        if (string.IsNullOrWhiteSpace(SelectedScope.RootPath))
+        {
+            StatusText = "Choose a root path before running backfill.";
+            return;
+        }
+
+        await RunBackfillDryRunAsync([SelectedScope.Id], "selected watch folder");
+    }
+
+    public async Task RunBackfillAllDryRunAsync()
+    {
+        if (Scopes.Count == 0)
+        {
+            StatusText = "Add a watch folder before running backfill.";
+            return;
+        }
+
+        await RunBackfillDryRunAsync([], "all watch folders");
+    }
+
+    private async Task RunBackfillDryRunAsync(IReadOnlyList<Guid> scopeIds, string label)
+    {
+        if (!await ApplyConfigAsync())
+        {
+            return;
+        }
+
+        try
+        {
+            lastBackfillReport = await apiClient.DryRunBackfillAsync(new BackfillRequest { ScopeIds = scopeIds });
+            BackfillPlans.Clear();
+            foreach (var plan in lastBackfillReport.Plans)
+            {
+                BackfillPlans.Add(plan);
+            }
+
+            BackfillSummary = $"Dry run for {label} found {lastBackfillReport.AffectedProjectCount} affected project(s).";
+            StatusText = BackfillSummary;
+            CommitBackfillCommand.RaiseCanExecuteChanged();
+        }
+        catch (HttpRequestException exception)
+        {
+            StatusText = $"Could not run backfill dry run: {exception.Message}";
+        }
     }
 
     public async Task CommitBackfillAsync()
@@ -244,21 +378,62 @@ public sealed class MainWindowViewModel : ViewModelBase
             return;
         }
 
-        var results = await apiClient.CommitBackfillAsync(lastBackfillReport);
-        BackfillSummary = $"Committed backfill for {results.Count} project(s).";
-        lastBackfillReport = null;
-        BackfillPlans.Clear();
-        CommitBackfillCommand.RaiseCanExecuteChanged();
-        await RefreshLogsAsync();
+        try
+        {
+            var results = await apiClient.CommitBackfillAsync(lastBackfillReport);
+            BackfillSummary = $"Committed backfill for {results.Count} project(s).";
+            StatusText = BackfillSummary;
+            lastBackfillReport = null;
+            BackfillPlans.Clear();
+            CommitBackfillCommand.RaiseCanExecuteChanged();
+            await RefreshLogsAsync();
+        }
+        catch (HttpRequestException exception)
+        {
+            StatusText = $"Could not commit backfill: {exception.Message}";
+        }
     }
 
     public async Task RefreshLogsAsync()
     {
-        Logs.Clear();
-        foreach (var log in await apiClient.GetLogsAsync())
+        try
         {
-            Logs.Add(log);
+            Logs.Clear();
+            foreach (var log in await apiClient.GetLogsAsync())
+            {
+                Logs.Add(log);
+            }
         }
+        catch (HttpRequestException exception)
+        {
+            StatusText = $"Could not load logs: {exception.Message}";
+        }
+    }
+
+    private void OpenBackfillPanel()
+    {
+        ClosePanels();
+        IsBackfillPanelOpen = true;
+    }
+
+    private async Task OpenLogsPanelAsync()
+    {
+        ClosePanels();
+        IsLogsPanelOpen = true;
+        await RefreshLogsAsync();
+    }
+
+    private void OpenSettingsPanel()
+    {
+        ClosePanels();
+        IsSettingsPanelOpen = true;
+    }
+
+    private void ClosePanels()
+    {
+        IsBackfillPanelOpen = false;
+        IsLogsPanelOpen = false;
+        IsSettingsPanelOpen = false;
     }
 
     public WatcherConfig BuildConfig()
@@ -277,12 +452,12 @@ public sealed class MainWindowViewModel : ViewModelBase
         {
             if (string.IsNullOrWhiteSpace(scope.Name))
             {
-                errors.Add("Every scope needs a name.");
+                errors.Add("Every watch folder needs a name.");
             }
 
             if (string.IsNullOrWhiteSpace(scope.RootPath))
             {
-                errors.Add($"Scope '{scope.Name}' needs a root path.");
+                errors.Add($"Watch folder '{scope.Name}' needs a root path.");
             }
 
             var templateValidation = FolderTemplateValidator.ValidateFlatTemplate(scope.FolderTemplate);
@@ -299,5 +474,18 @@ public sealed class MainWindowViewModel : ViewModelBase
         RemoveFolderCommand.RaiseCanExecuteChanged();
         AddExclusionCommand.RaiseCanExecuteChanged();
         RemoveExclusionCommand.RaiseCanExecuteChanged();
+        RunBackfillDryRunCommand.RaiseCanExecuteChanged();
+        RunBackfillAllDryRunCommand.RaiseCanExecuteChanged();
+        OpenBackfillPanelCommand.RaiseCanExecuteChanged();
+        OpenLogsPanelCommand.RaiseCanExecuteChanged();
+    }
+
+    private void SelectedScope_PropertyChanged(object? sender, PropertyChangedEventArgs args)
+    {
+        if (args.PropertyName is nameof(ScopeEditorViewModel.RootPath) or nameof(ScopeEditorViewModel.HasRootPath))
+        {
+            RaisePropertyChanged(nameof(HasSelectedRootPath));
+            RaiseCommandStates();
+        }
     }
 }

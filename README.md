@@ -58,6 +58,16 @@ Useful options:
 
 The demo refuses to run if another daemon is already listening on `http://localhost:47821`, because that would mean the isolated demo config would not be used.
 
+## UI Preview
+
+For quick design review without building the desktop app, open:
+
+```text
+design/admin-ui-preview/index.html
+```
+
+The preview is static HTML/CSS that mirrors the admin UI layout and visual tokens used by the Avalonia app.
+
 ## Windows Service
 
 On the Windows machine that should own the watcher, run PowerShell as Administrator:

@@ -26,7 +26,7 @@ public sealed partial class MainWindow : Window
 
         var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
         {
-            Title = "Select project scope root",
+            Title = "Select watch folder root",
             AllowMultiple = false
         });
 
@@ -39,7 +39,7 @@ public sealed partial class MainWindow : Window
 
     private async void BrowseExclusion_Click(object? sender, RoutedEventArgs args)
     {
-        if (ViewModel.SelectedScope is null)
+        if (!ViewModel.HasSelectedRootPath || ViewModel.SelectedScope is null)
         {
             return;
         }
@@ -59,7 +59,7 @@ public sealed partial class MainWindow : Window
 
     private void Exclusions_Drop(object? sender, DragEventArgs args)
     {
-        if (ViewModel.SelectedScope is null)
+        if (!ViewModel.HasSelectedRootPath || ViewModel.SelectedScope is null)
         {
             return;
         }
@@ -76,6 +76,81 @@ public sealed partial class MainWindow : Window
             {
                 ViewModel.AddExclusionPath(folder.Path.LocalPath);
             }
+        }
+    }
+
+    private void RemoveWatchFolder_Click(object? sender, RoutedEventArgs args)
+    {
+        if (sender is not Control { DataContext: ScopeEditorViewModel scope })
+        {
+            return;
+        }
+
+        ViewModel.RemoveScope(scope);
+        args.Handled = true;
+    }
+
+    private void RemoveExclusionPath_Click(object? sender, RoutedEventArgs args)
+    {
+        if (sender is not Control { DataContext: string path })
+        {
+            return;
+        }
+
+        ViewModel.RemoveExclusionPath(path);
+        args.Handled = true;
+    }
+
+    private void RemoveFolderTemplate_Click(object? sender, RoutedEventArgs args)
+    {
+        if (sender is not Control { DataContext: FolderTemplateItemViewModel folder })
+        {
+            return;
+        }
+
+        ViewModel.RemoveFolder(folder);
+        args.Handled = true;
+    }
+
+    private void FolderTemplateItem_DoubleTapped(object? sender, TappedEventArgs args)
+    {
+        BeginFolderTemplateEdit(sender);
+        args.Handled = true;
+    }
+
+    private void EditFolderTemplate_Click(object? sender, RoutedEventArgs args)
+    {
+        BeginFolderTemplateEdit(sender);
+        args.Handled = true;
+    }
+
+    private static void BeginFolderTemplateEdit(object? sender)
+    {
+        if (sender is Control { DataContext: FolderTemplateItemViewModel item })
+        {
+            item.IsEditing = true;
+        }
+    }
+
+    private void FolderTemplateEdit_LostFocus(object? sender, RoutedEventArgs args)
+    {
+        EndFolderTemplateEdit(sender);
+    }
+
+    private void FolderTemplateEdit_KeyDown(object? sender, KeyEventArgs args)
+    {
+        if (args.Key is Key.Enter or Key.Escape)
+        {
+            EndFolderTemplateEdit(sender);
+            args.Handled = true;
+        }
+    }
+
+    private static void EndFolderTemplateEdit(object? sender)
+    {
+        if (sender is Control { DataContext: FolderTemplateItemViewModel item })
+        {
+            item.IsEditing = false;
         }
     }
 

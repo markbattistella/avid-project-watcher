@@ -8,7 +8,7 @@ public sealed class ScopeEditorViewModel : ViewModelBase
     private string rootPath = string.Empty;
     private bool enabled = true;
     private string newFolderName = string.Empty;
-    private string? selectedFolder;
+    private FolderTemplateItemViewModel? selectedFolder;
     private string newExcludedPath = string.Empty;
     private string? selectedExcludedPath;
 
@@ -17,13 +17,26 @@ public sealed class ScopeEditorViewModel : ViewModelBase
     public string Name
     {
         get => name;
-        set => SetProperty(ref name, value);
+        set
+        {
+            if (SetProperty(ref name, value))
+            {
+                RaisePropertyChanged(nameof(DisplayName));
+            }
+        }
     }
 
     public string RootPath
     {
         get => rootPath;
-        set => SetProperty(ref rootPath, value);
+        set
+        {
+            if (SetProperty(ref rootPath, value))
+            {
+                RaisePropertyChanged(nameof(DisplayName));
+                RaisePropertyChanged(nameof(HasRootPath));
+            }
+        }
     }
 
     public bool Enabled
@@ -32,7 +45,11 @@ public sealed class ScopeEditorViewModel : ViewModelBase
         set => SetProperty(ref enabled, value);
     }
 
-    public ObservableCollection<string> FolderTemplate { get; } = [];
+    public string DisplayName => DeriveName(RootPath, Name);
+
+    public bool HasRootPath => !string.IsNullOrWhiteSpace(RootPath);
+
+    public ObservableCollection<FolderTemplateItemViewModel> FolderTemplate { get; } = [];
 
     public ObservableCollection<string> ExcludedPaths { get; } = [];
 
@@ -42,7 +59,7 @@ public sealed class ScopeEditorViewModel : ViewModelBase
         set => SetProperty(ref newFolderName, value);
     }
 
-    public string? SelectedFolder
+    public FolderTemplateItemViewModel? SelectedFolder
     {
         get => selectedFolder;
         set => SetProperty(ref selectedFolder, value);
@@ -72,7 +89,7 @@ public sealed class ScopeEditorViewModel : ViewModelBase
 
         foreach (var folder in location.FolderTemplate)
         {
-            viewModel.FolderTemplate.Add(folder.RelativePath);
+            viewModel.FolderTemplate.Add(new FolderTemplateItemViewModel(folder.RelativePath));
         }
 
         foreach (var exclusion in location.ExcludedPaths)
@@ -88,10 +105,11 @@ public sealed class ScopeEditorViewModel : ViewModelBase
         return new WatchedLocation
         {
             Id = Id,
-            Name = Name.Trim(),
+            Name = DisplayName,
             RootPath = RootPath.Trim(),
             Enabled = Enabled,
             FolderTemplate = FolderTemplate
+                .Select(folder => folder.Name)
                 .Where(folder => !string.IsNullOrWhiteSpace(folder))
                 .Select(folder => new FolderTemplateEntry(folder.Trim()))
                 .ToArray(),
@@ -100,5 +118,17 @@ public sealed class ScopeEditorViewModel : ViewModelBase
                 .Select(path => new ExcludedPath(path.Trim()))
                 .ToArray()
         };
+    }
+
+    private static string DeriveName(string rootPath, string fallback)
+    {
+        var trimmed = rootPath.Trim().TrimEnd('/', '\\');
+        if (string.IsNullOrWhiteSpace(trimmed))
+        {
+            return string.IsNullOrWhiteSpace(fallback) ? "New watch folder" : fallback.Trim();
+        }
+
+        var parts = trimmed.Split(['/', '\\'], StringSplitOptions.RemoveEmptyEntries);
+        return parts.Length == 0 ? trimmed : parts[^1];
     }
 }
