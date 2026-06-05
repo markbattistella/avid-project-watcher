@@ -64,7 +64,17 @@
             </Grid>
 
             <Border DockPanel.Dock="Bottom" BorderBrush="#30363d" BorderThickness="0,1,0,0" Padding="0,8,0,0" Margin="0,4,0,0">
-              <StackPanel Spacing="2">
+              <StackPanel Spacing="4">
+                <Button
+                    Classes="link"
+                    IsVisible="{Binding HasUpdateAvailable}"
+                    Command="{Binding OpenUpdateCommand}"
+                    ToolTip.Tip="Click to open the releases page">
+                  <StackPanel Orientation="Horizontal" Spacing="5">
+                    <PathIcon Data="{StaticResource OcticonDownload}" Width="11" Height="11" Foreground="#22c55e" />
+                    <TextBlock Text="Update available" FontSize="11" Foreground="#22c55e" />
+                  </StackPanel>
+                </Button>
                 <TextBlock Classes="muted" Text="{Binding AppVersion}" FontSize="11" />
                 <TextBlock Classes="muted" Text="{Binding Copyright}" FontSize="11" />
               </StackPanel>

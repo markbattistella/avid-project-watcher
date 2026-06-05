@@ -1,5 +1,8 @@
 using System.ComponentModel;
+using System.Diagnostics;
+using System.Net.Http.Json;
 using System.Reflection;
+using System.Text.Json;
 using AvidProjectWatcher.Core.Audit;
 using AvidProjectWatcher.Core.Backfill;
 using AvidProjectWatcher.Core.Configuration;
@@ -24,6 +27,9 @@ public sealed class MainWindowViewModel : ViewModelBase
     private bool isDirty;
     private bool isLoading;
     private string daemonUrlSetting;
+    private bool hasUpdateAvailable;
+    private string updateUrl = string.Empty;
+    private bool updateCheckDone;
 
     public MainWindowViewModel()
     {
@@ -48,6 +54,8 @@ public sealed class MainWindowViewModel : ViewModelBase
         OpenSettingsPanelCommand = new RelayCommand(OpenSettingsPanel);
         ClosePanelCommand = new RelayCommand(ClosePanels);
         ConnectCommand = new AsyncRelayCommand(ConnectAsync);
+
+        _ = CheckForUpdateAsync();
 
         Scopes.CollectionChanged += (_, args) =>
         {
@@ -128,6 +136,69 @@ public sealed class MainWindowViewModel : ViewModelBase
     {
         get => isDirty;
         private set => SetProperty(ref isDirty, value);
+    }
+
+    public bool HasUpdateAvailable
+    {
+        get => hasUpdateAvailable;
+        private set => SetProperty(ref hasUpdateAvailable, value);
+    }
+
+    public string UpdateUrl
+    {
+        get => updateUrl;
+        private set => SetProperty(ref updateUrl, value);
+    }
+
+    public RelayCommand OpenUpdateCommand => new(() =>
+    {
+        if (!string.IsNullOrEmpty(UpdateUrl))
+            Process.Start(new ProcessStartInfo(UpdateUrl) { UseShellExecute = true });
+    });
+
+    private async Task CheckForUpdateAsync()
+    {
+        if (updateCheckDone) return;
+        updateCheckDone = true;
+
+        var current = AppVersion.TrimStart('v');
+        if (current is "0.0.0" or "dev") return;
+
+        try
+        {
+            using var http = new HttpClient();
+            http.DefaultRequestHeaders.UserAgent.ParseAdd("AvidProjectWatcher");
+
+            var release = await http.GetFromJsonAsync<JsonElement>(
+                "https://api.github.com/repos/markbattistella/avid-project-watcher/releases/latest");
+
+            var tag = release.GetProperty("tag_name").GetString()?.TrimStart('v') ?? string.Empty;
+            var url = release.GetProperty("html_url").GetString() ?? string.Empty;
+
+            if (!string.IsNullOrEmpty(tag) && IsNewerVersion(tag, current))
+            {
+                HasUpdateAvailable = true;
+                UpdateUrl = url;
+            }
+        }
+        catch
+        {
+            // Update check is best-effort, never fail visibly
+        }
+    }
+
+    private static bool IsNewerVersion(string latest, string current)
+    {
+        var l = latest.Split('.').Select(p => int.TryParse(p, out var n) ? n : 0).ToArray();
+        var c = current.Split('.').Select(p => int.TryParse(p, out var n) ? n : 0).ToArray();
+        for (var i = 0; i < Math.Max(l.Length, c.Length); i++)
+        {
+            var lv = i < l.Length ? l[i] : 0;
+            var cv = i < c.Length ? c[i] : 0;
+            if (lv > cv) return true;
+            if (lv < cv) return false;
+        }
+        return false;
     }
 
     private void SubscribeToScope(ScopeEditorViewModel scope)

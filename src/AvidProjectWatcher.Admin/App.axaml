@@ -154,6 +154,14 @@
       <Setter Property="BorderBrush" Value="#30363d" />
     </Style>
 
+    <Style Selector="Button.link">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderBrush" Value="Transparent" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="Cursor" Value="Hand" />
+    </Style>
+
     <Style Selector="Button.secondary">
       <Setter Property="Background" Value="Transparent" />
       <Setter Property="Foreground" Value="#a78bfa" />

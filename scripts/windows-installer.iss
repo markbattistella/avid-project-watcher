@@ -24,6 +24,8 @@ Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
 PrivilegesRequired=admin
+; Allow running on top of an existing install without uninstalling first
+CloseApplications=force
 
 [Types]
 Name: full;   Description: "Both (recommended for new setups)"
