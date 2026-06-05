@@ -201,7 +201,7 @@ public sealed class MainWindowViewModel : ViewModelBase
         .Split('+')[0]  // strip git hash suffix if present
         ?? "dev");
 
-    public string Copyright { get; } = $"© {DateTime.UtcNow.Year} Mark Battistella";
+    public string Copyright { get; } = $"© {DateTime.UtcNow.Year} MB+MAB";
 
     public bool IsBackfillPanelOpen
     {

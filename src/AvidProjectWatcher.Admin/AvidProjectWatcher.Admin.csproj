@@ -3,8 +3,8 @@
     <OutputType>WinExe</OutputType>
     <AssemblyName>AvidProjectWatcher.Admin</AssemblyName>
     <ApplicationTitle>Avid Project Watcher</ApplicationTitle>
-    <Company>Mark Battistella</Company>
-    <Copyright>Copyright © $([System.DateTime]::UtcNow.Year) Mark Battistella</Copyright>
+    <Company>MB+MAB</Company>
+    <Copyright>Copyright © $([System.DateTime]::UtcNow.Year) MB+MAB</Copyright>
     <Description>Service admin UI for the Avid Project Watcher daemon.</Description>
 
     <!-- Version defaults to 0.0.0; overridden by -p:Version=YYYY.MM.DD in CI -->

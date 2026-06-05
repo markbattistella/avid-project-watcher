@@ -1,5 +1,5 @@
 #define AppName      "Avid Project Watcher"
-#define AppPublisher "Mark Battistella"
+#define AppPublisher "MB+MAB"
 #define AppURL       "https://github.com/markbattistella/avid-project-watcher"
 #define AdminExe     "AvidProjectWatcher.Admin.exe"
 #define DaemonExe    "AvidProjectWatcher.Daemon.exe"
