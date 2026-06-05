@@ -10,7 +10,8 @@ namespace AvidProjectWatcher.Admin.ViewModels;
 
 public sealed class MainWindowViewModel : ViewModelBase
 {
-    private readonly ApiClient apiClient = new();
+    private readonly PreferencesStore preferencesStore = new();
+    private readonly ApiClient apiClient;
     private ScopeEditorViewModel? selectedScope;
     private BackfillReport? lastBackfillReport;
     private string statusText = "Connecting to daemon...";
@@ -22,9 +23,14 @@ public sealed class MainWindowViewModel : ViewModelBase
     private bool isSettingsPanelOpen;
     private bool isDirty;
     private bool isLoading;
+    private string daemonUrlSetting;
 
     public MainWindowViewModel()
     {
+        var prefs = preferencesStore.Load();
+        apiClient = new ApiClient(prefs.DaemonBaseUrl);
+        daemonUrlSetting = prefs.DaemonBaseUrl;
+
         AddScopeCommand = new RelayCommand(AddScope);
         RemoveScopeCommand = new RelayCommand(RemoveSelectedScope, () => SelectedScope is not null);
         AddFolderCommand = new RelayCommand(AddFolder, () => HasSelectedRootPath);
@@ -41,6 +47,7 @@ public sealed class MainWindowViewModel : ViewModelBase
         OpenLogsPanelCommand = new AsyncRelayCommand(OpenLogsPanelAsync);
         OpenSettingsPanelCommand = new RelayCommand(OpenSettingsPanel);
         ClosePanelCommand = new RelayCommand(ClosePanels);
+        ConnectCommand = new AsyncRelayCommand(ConnectAsync);
 
         Scopes.CollectionChanged += (_, args) =>
         {
@@ -177,7 +184,15 @@ public sealed class MainWindowViewModel : ViewModelBase
         private set => SetProperty(ref daemonStatusLabel, value);
     }
 
-    public string DaemonUrl { get; } = $"http://localhost:{ConfigDefaults.DefaultApiPort}";
+    public string DaemonUrl => daemonUrlSetting;
+
+    public string DaemonUrlSetting
+    {
+        get => daemonUrlSetting;
+        set => SetProperty(ref daemonUrlSetting, value);
+    }
+
+    public AsyncRelayCommand ConnectCommand { get; }
 
     public string AppVersion { get; } = "v" + (Assembly
         .GetExecutingAssembly()
@@ -543,6 +558,28 @@ public sealed class MainWindowViewModel : ViewModelBase
             DaemonStatusLabel = "Not connected";
             StatusText = "Could not load logs. Daemon not reachable.";
         }
+    }
+
+    private async Task ConnectAsync()
+    {
+        var url = DaemonUrlSetting.Trim();
+        if (string.IsNullOrWhiteSpace(url))
+        {
+            StatusText = "Enter a daemon URL first.";
+            return;
+        }
+
+        if (!Uri.TryCreate(url, UriKind.Absolute, out _))
+        {
+            StatusText = "That doesn't look like a valid URL.";
+            return;
+        }
+
+        preferencesStore.Save(new Preferences { DaemonBaseUrl = url });
+        apiClient.Reconnect(url);
+        RaisePropertyChanged(nameof(DaemonUrl));
+        ClosePanels();
+        await LoadAsync();
     }
 
     private void OpenBackfillPanel()

@@ -407,6 +407,20 @@
 
           <Border Classes="panel" Padding="14">
             <StackPanel Spacing="12">
+              <TextBlock Text="Daemon Connection" FontSize="15" FontWeight="SemiBold" />
+              <TextBlock Classes="muted" Text="By default the Admin connects to a daemon on this machine. Change the URL to connect to a daemon on another server." TextWrapping="Wrap" />
+              <TextBox Text="{Binding DaemonUrlSetting}" Watermark="http://localhost:47821" />
+              <Button Classes="secondary" Command="{Binding ConnectCommand}">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                  <PathIcon Data="{StaticResource OcticonSync}" />
+                  <TextBlock Text="Connect" />
+                </StackPanel>
+              </Button>
+            </StackPanel>
+          </Border>
+
+          <Border Classes="panel" Padding="14">
+            <StackPanel Spacing="12">
               <TextBlock Text="Configuration" FontSize="15" FontWeight="SemiBold" />
               <TextBlock Classes="muted" Text="Reload fetches the latest config from the daemon. Apply sends your changes to the daemon so it picks them up." TextWrapping="Wrap" />
               <Button Classes="secondary" Command="{Binding RefreshCommand}">

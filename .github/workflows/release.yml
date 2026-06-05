@@ -143,11 +143,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - label:   Windows x64
-            runner:  windows-latest
-            rid:     win-x64
-            admin_artifact:  AvidProjectWatcher-Admin-win-x64.zip
-            daemon_artifact: AvidProjectWatcher-Daemon-win-x64.zip
+          - label:          Windows x64
+            runner:          windows-latest
+            rid:             win-x64
+            setup_artifact:  AvidProjectWatcher-Setup-win-x64.exe
 
           - label:   macOS arm64
             runner:  macos-latest
@@ -185,14 +184,18 @@ jobs:
             -p:Version=${{ needs.prepare.outputs.version }} \
             -o ./out/daemon/${{ matrix.rid }}
 
-      # ── Windows: zip both ─────────────────────────────────────────────────
+      # ── Windows: Inno Setup installer with component selection ──────────────
       - name: Package (Windows)
         if: runner.os == 'Windows'
-        shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force dist | Out-Null
-          Compress-Archive -Path ./out/admin/${{ matrix.rid }}/*  -DestinationPath dist/${{ matrix.admin_artifact }}
-          Compress-Archive -Path ./out/daemon/${{ matrix.rid }}/* -DestinationPath dist/${{ matrix.daemon_artifact }}
+          mkdir -p dist
+          ISCC="/c/Program Files (x86)/Inno Setup 6/ISCC.exe"
+          [ -f "$ISCC" ] || choco install innosetup -y --no-progress
+          "$ISCC" \
+            /DVersion=${{ needs.prepare.outputs.version }} \
+            "/DAdminDir=$(pwd)/out/admin/${{ matrix.rid }}" \
+            "/DDaemonDir=$(pwd)/out/daemon/${{ matrix.rid }}" \
+            scripts/windows-installer.iss
 
       # ── macOS: .app bundle + DMG for Admin, zip for Daemon ───────────────
       - name: Package (macOS)
@@ -260,7 +263,17 @@ jobs:
           zip -r "../../../dist/${{ matrix.daemon_artifact }}" .
           cd -
 
-      - name: Upload Admin artifact
+      - name: Upload installer (Windows)
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.setup_artifact }}
+          path: dist/${{ matrix.setup_artifact }}
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload Admin artifact (macOS)
+        if: runner.os == 'macOS'
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.admin_artifact }}
@@ -268,7 +281,8 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-      - name: Upload Daemon artifact
+      - name: Upload Daemon artifact (macOS)
+        if: runner.os == 'macOS'
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.daemon_artifact }}

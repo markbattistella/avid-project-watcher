@@ -6,12 +6,15 @@ using AvidProjectWatcher.Core.Models;
 
 namespace AvidProjectWatcher.Admin.ViewModels;
 
-public sealed class ApiClient
+public sealed class ApiClient(string baseUrl)
 {
-    private readonly HttpClient httpClient = new()
+    private HttpClient httpClient = new() { BaseAddress = new Uri(baseUrl) };
+
+    public void Reconnect(string newBaseUrl)
     {
-        BaseAddress = new Uri("http://localhost:47821")
-    };
+        httpClient.Dispose();
+        httpClient = new HttpClient { BaseAddress = new Uri(newBaseUrl) };
+    }
 
     public async Task<WatcherConfig> GetConfigAsync(CancellationToken cancellationToken = default)
     {
