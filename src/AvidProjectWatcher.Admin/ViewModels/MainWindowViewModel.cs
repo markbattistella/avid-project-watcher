@@ -1,6 +1,8 @@
 using System.ComponentModel;
+using System.Reflection;
 using AvidProjectWatcher.Core.Audit;
 using AvidProjectWatcher.Core.Backfill;
+using AvidProjectWatcher.Core.Configuration;
 using AvidProjectWatcher.Core.Models;
 using AvidProjectWatcher.Core.Templates;
 
@@ -11,11 +13,15 @@ public sealed class MainWindowViewModel : ViewModelBase
     private readonly ApiClient apiClient = new();
     private ScopeEditorViewModel? selectedScope;
     private BackfillReport? lastBackfillReport;
-    private string statusText = "Daemon not connected.";
-    private string backfillSummary = "No dry run has been run.";
+    private string statusText = "Connecting to daemon...";
+    private string backfillSummary = "No dry run yet.";
+    private bool isDaemonConnected;
+    private string daemonStatusLabel = "Connecting...";
     private bool isBackfillPanelOpen;
     private bool isLogsPanelOpen;
     private bool isSettingsPanelOpen;
+    private bool isDirty;
+    private bool isLoading;
 
     public MainWindowViewModel()
     {
@@ -32,9 +38,33 @@ public sealed class MainWindowViewModel : ViewModelBase
         CommitBackfillCommand = new AsyncRelayCommand(CommitBackfillAsync, () => lastBackfillReport?.AffectedProjectCount > 0);
         RefreshLogsCommand = new AsyncRelayCommand(RefreshLogsAsync);
         OpenBackfillPanelCommand = new RelayCommand(OpenBackfillPanel, () => HasSelectedRootPath);
-        OpenLogsPanelCommand = new AsyncRelayCommand(OpenLogsPanelAsync, () => HasSelectedRootPath);
+        OpenLogsPanelCommand = new AsyncRelayCommand(OpenLogsPanelAsync);
         OpenSettingsPanelCommand = new RelayCommand(OpenSettingsPanel);
         ClosePanelCommand = new RelayCommand(ClosePanels);
+
+        Scopes.CollectionChanged += (_, args) =>
+        {
+            if (!isLoading) IsDirty = true;
+
+            if (args.NewItems is not null)
+                foreach (ScopeEditorViewModel scope in args.NewItems)
+                    SubscribeToScope(scope);
+
+            if (args.OldItems is not null)
+                foreach (ScopeEditorViewModel scope in args.OldItems)
+                    UnsubscribeFromScope(scope);
+        };
+
+        BackfillPlans.CollectionChanged += (_, _) =>
+        {
+            RaisePropertyChanged(nameof(HasBackfillPlans));
+            RaisePropertyChanged(nameof(HasNoBackfillPlans));
+        };
+        Logs.CollectionChanged += (_, _) =>
+        {
+            RaisePropertyChanged(nameof(HasLogs));
+            RaisePropertyChanged(nameof(HasNoLogs));
+        };
     }
 
     public ObservableCollection<ScopeEditorViewModel> Scopes { get; } = [];
@@ -66,12 +96,62 @@ public sealed class MainWindowViewModel : ViewModelBase
                 }
 
                 RaisePropertyChanged(nameof(HasSelectedRootPath));
+                RaisePropertyChanged(nameof(HasSelectedScope));
+                RaisePropertyChanged(nameof(HasNoSelectedScope));
                 RaiseCommandStates();
             }
         }
     }
 
     public bool HasSelectedRootPath => SelectedScope?.HasRootPath == true;
+
+    public bool HasSelectedScope => selectedScope is not null;
+
+    public bool HasNoSelectedScope => selectedScope is null;
+
+    public bool HasBackfillPlans => BackfillPlans.Count > 0;
+
+    public bool HasNoBackfillPlans => BackfillPlans.Count == 0;
+
+    public bool HasLogs => Logs.Count > 0;
+
+    public bool HasNoLogs => Logs.Count == 0;
+
+    public bool IsDirty
+    {
+        get => isDirty;
+        private set => SetProperty(ref isDirty, value);
+    }
+
+    private void SubscribeToScope(ScopeEditorViewModel scope)
+    {
+        scope.PropertyChanged += OnScopePropertyChanged;
+        scope.FolderTemplate.CollectionChanged += OnScopeCollectionChanged;
+        scope.ExcludedPaths.CollectionChanged += OnScopeCollectionChanged;
+    }
+
+    private void UnsubscribeFromScope(ScopeEditorViewModel scope)
+    {
+        scope.PropertyChanged -= OnScopePropertyChanged;
+        scope.FolderTemplate.CollectionChanged -= OnScopeCollectionChanged;
+        scope.ExcludedPaths.CollectionChanged -= OnScopeCollectionChanged;
+    }
+
+    private void OnScopePropertyChanged(object? sender, PropertyChangedEventArgs args)
+    {
+        if (!isLoading && args.PropertyName is
+                nameof(ScopeEditorViewModel.Name) or
+                nameof(ScopeEditorViewModel.RootPath) or
+                nameof(ScopeEditorViewModel.Enabled))
+        {
+            IsDirty = true;
+        }
+    }
+
+    private void OnScopeCollectionChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs args)
+    {
+        if (!isLoading) IsDirty = true;
+    }
 
     public string StatusText
     {
@@ -84,6 +164,29 @@ public sealed class MainWindowViewModel : ViewModelBase
         get => backfillSummary;
         set => SetProperty(ref backfillSummary, value);
     }
+
+    public bool IsDaemonConnected
+    {
+        get => isDaemonConnected;
+        private set => SetProperty(ref isDaemonConnected, value);
+    }
+
+    public string DaemonStatusLabel
+    {
+        get => daemonStatusLabel;
+        private set => SetProperty(ref daemonStatusLabel, value);
+    }
+
+    public string DaemonUrl { get; } = $"http://localhost:{ConfigDefaults.DefaultApiPort}";
+
+    public string AppVersion { get; } = "v" + (Assembly
+        .GetExecutingAssembly()
+        .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
+        ?.InformationalVersion
+        .Split('+')[0]  // strip git hash suffix if present
+        ?? "dev");
+
+    public string Copyright { get; } = $"© {DateTime.UtcNow.Year} Mark Battistella";
 
     public bool IsBackfillPanelOpen
     {
@@ -139,10 +242,14 @@ public sealed class MainWindowViewModel : ViewModelBase
 
     public async Task LoadAsync()
     {
+        isLoading = true;
         try
         {
             var config = await apiClient.GetConfigAsync();
+
+            foreach (var existing in Scopes) { UnsubscribeFromScope(existing); }
             Scopes.Clear();
+
             foreach (var scope in config.WatchedLocations)
             {
                 Scopes.Add(ScopeEditorViewModel.FromModel(scope));
@@ -151,10 +258,17 @@ public sealed class MainWindowViewModel : ViewModelBase
             SelectedScope = Scopes.FirstOrDefault();
             await RefreshStatusAsync();
             await RefreshLogsAsync();
+            IsDirty = false;
         }
-        catch (HttpRequestException exception)
+        catch (HttpRequestException)
         {
-            StatusText = $"Daemon not reachable: {exception.Message}";
+            IsDaemonConnected = false;
+            DaemonStatusLabel = "Not connected";
+            StatusText = "Daemon not reachable.";
+        }
+        finally
+        {
+            isLoading = false;
         }
     }
 
@@ -162,7 +276,8 @@ public sealed class MainWindowViewModel : ViewModelBase
     {
         if (await ApplyConfigAsync())
         {
-            StatusText = "Changes applied.";
+            StatusText = "Saved.";
+            IsDirty = false;
         }
     }
 
@@ -182,9 +297,11 @@ public sealed class MainWindowViewModel : ViewModelBase
             await RefreshStatusAsync();
             return true;
         }
-        catch (HttpRequestException exception)
+        catch (HttpRequestException)
         {
-            StatusText = $"Could not apply changes: {exception.Message}";
+            IsDaemonConnected = false;
+            DaemonStatusLabel = "Not connected";
+            StatusText = "Could not apply changes. Daemon not reachable.";
             return false;
         }
     }
@@ -197,11 +314,23 @@ public sealed class MainWindowViewModel : ViewModelBase
             var runningCount = status.Watchers.Count(watcher => watcher.IsRunning);
             var disconnectedCount = status.Watchers.Count(watcher => watcher.IsDisconnected);
             var duplicateCount = status.DuplicateWarnings.Count;
-            StatusText = $"{runningCount} watcher(s) running, {disconnectedCount} disconnected, {duplicateCount} duplicate warning(s). Config: {status.ConfigPath}";
+
+            IsDaemonConnected = true;
+            DaemonStatusLabel = $"{runningCount} running";
+
+            StatusText = duplicateCount > 0
+                ? $"{runningCount} running · {disconnectedCount} disconnected · {duplicateCount} duplicate warning(s)"
+                : disconnectedCount > 0
+                ? $"{runningCount} running · {disconnectedCount} disconnected"
+                : runningCount == 1
+                ? "1 watcher running"
+                : $"{runningCount} watchers running";
         }
-        catch (HttpRequestException exception)
+        catch (HttpRequestException)
         {
-            StatusText = $"Daemon not reachable: {exception.Message}";
+            IsDaemonConnected = false;
+            DaemonStatusLabel = "Not connected";
+            StatusText = "Daemon not reachable.";
         }
     }
 
@@ -321,13 +450,13 @@ public sealed class MainWindowViewModel : ViewModelBase
     {
         if (SelectedScope is null)
         {
-            StatusText = "Select a watch folder before running a selected-folder dry run.";
+            StatusText = "Select a watch folder first.";
             return;
         }
 
         if (string.IsNullOrWhiteSpace(SelectedScope.RootPath))
         {
-            StatusText = "Choose a root path before running backfill.";
+            StatusText = "Set a root path first.";
             return;
         }
 
@@ -338,7 +467,7 @@ public sealed class MainWindowViewModel : ViewModelBase
     {
         if (Scopes.Count == 0)
         {
-            StatusText = "Add a watch folder before running backfill.";
+            StatusText = "Add a watch folder first.";
             return;
         }
 
@@ -361,13 +490,15 @@ public sealed class MainWindowViewModel : ViewModelBase
                 BackfillPlans.Add(plan);
             }
 
-            BackfillSummary = $"Dry run for {label} found {lastBackfillReport.AffectedProjectCount} affected project(s).";
+            BackfillSummary = $"Dry run complete. {lastBackfillReport.AffectedProjectCount} project(s) need folders.";
             StatusText = BackfillSummary;
             CommitBackfillCommand.RaiseCanExecuteChanged();
         }
-        catch (HttpRequestException exception)
+        catch (HttpRequestException)
         {
-            StatusText = $"Could not run backfill dry run: {exception.Message}";
+            IsDaemonConnected = false;
+            DaemonStatusLabel = "Not connected";
+            StatusText = "Could not run dry run. Daemon not reachable.";
         }
     }
 
@@ -381,16 +512,18 @@ public sealed class MainWindowViewModel : ViewModelBase
         try
         {
             var results = await apiClient.CommitBackfillAsync(lastBackfillReport);
-            BackfillSummary = $"Committed backfill for {results.Count} project(s).";
+            BackfillSummary = $"Done. Folders created for {results.Count} project(s).";
             StatusText = BackfillSummary;
             lastBackfillReport = null;
             BackfillPlans.Clear();
             CommitBackfillCommand.RaiseCanExecuteChanged();
             await RefreshLogsAsync();
         }
-        catch (HttpRequestException exception)
+        catch (HttpRequestException)
         {
-            StatusText = $"Could not commit backfill: {exception.Message}";
+            IsDaemonConnected = false;
+            DaemonStatusLabel = "Not connected";
+            StatusText = "Could not commit. Daemon not reachable.";
         }
     }
 
@@ -404,9 +537,11 @@ public sealed class MainWindowViewModel : ViewModelBase
                 Logs.Add(log);
             }
         }
-        catch (HttpRequestException exception)
+        catch (HttpRequestException)
         {
-            StatusText = $"Could not load logs: {exception.Message}";
+            IsDaemonConnected = false;
+            DaemonStatusLabel = "Not connected";
+            StatusText = "Could not load logs. Daemon not reachable.";
         }
     }
 
@@ -477,7 +612,6 @@ public sealed class MainWindowViewModel : ViewModelBase
         RunBackfillDryRunCommand.RaiseCanExecuteChanged();
         RunBackfillAllDryRunCommand.RaiseCanExecuteChanged();
         OpenBackfillPanelCommand.RaiseCanExecuteChanged();
-        OpenLogsPanelCommand.RaiseCanExecuteChanged();
     }
 
     private void SelectedScope_PropertyChanged(object? sender, PropertyChangedEventArgs args)

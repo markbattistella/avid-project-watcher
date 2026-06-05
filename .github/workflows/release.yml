@@ -1,0 +1,327 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release tag/version. If a draft with this tag exists, its notes are kept."
+        required: true
+        type: string
+      ref:
+        description: "Branch, tag, or SHA to release when no matching draft exists."
+        required: false
+        default: "main"
+        type: string
+  schedule:
+    - cron: "0 23 * * *" # 09:00 AEST / 10:00 AEDT
+  push:
+    tags:
+      - "20*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.event.inputs.version || github.ref_name || github.run_id }}
+  cancel-in-progress: false
+
+# ── Prepare ────────────────────────────────────────────────────────────────────
+# Resolves version, validates format, and finds or creates the draft release.
+# Supports three paths:
+#   1. workflow_dispatch - use supplied version; reuse existing draft if found.
+#   2. schedule - find today's draft (AEST) and publish it.
+#   3. push tag - publish directly from the tag.
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      should_release: ${{ steps.release.outputs.should_release }}
+      version:        ${{ steps.release.outputs.version }}
+      ref:            ${{ steps.release.outputs.ref }}
+      release_id:     ${{ steps.release.outputs.release_id }}
+      from_draft:     ${{ steps.release.outputs.from_draft }}
+    steps:
+      - name: Resolve release
+        id: release
+        uses: actions/github-script@v7
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+          INPUT_REF:     ${{ github.event.inputs.ref }}
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo  = context.repo.repo;
+            const defaultBranch = context.payload.repository?.default_branch || 'main';
+
+            function setOutputs({ shouldRelease, version = '', ref = '', releaseId = '', fromDraft = false }) {
+              core.setOutput('should_release', shouldRelease ? 'true' : 'false');
+              core.setOutput('version',        version);
+              core.setOutput('ref',            ref);
+              core.setOutput('release_id',     releaseId ? String(releaseId) : '');
+              core.setOutput('from_draft',     fromDraft ? 'true' : 'false');
+            }
+
+            function validateVersion(version) {
+              if (!/^20\d{2}\.\d{2}\.\d{2}(?:\.\d+)?$/.test(version)) {
+                throw new Error(`Version must be YYYY.MM.DD or YYYY.MM.DD.N - got: ${version}`);
+              }
+              const [y, m, d] = version.split('.').slice(0, 3).map(Number);
+              const date = new Date(Date.UTC(y, m - 1, d));
+              if (date.getUTCFullYear() !== y || date.getUTCMonth() !== m - 1 || date.getUTCDate() !== d) {
+                throw new Error(`Version is not a valid calendar date: ${version}`);
+              }
+              const parts = version.split('.');
+              if (parts.length === 4 && Number(parts[3]) === 0) {
+                throw new Error('Same-day release suffix must be greater than zero.');
+              }
+            }
+
+            function baseDate(v) { return v.split('.').slice(0, 3).join('.'); }
+
+            async function allReleases() {
+              return github.paginate(github.rest.repos.listReleases, { owner, repo, per_page: 100 });
+            }
+
+            // ── scheduled run ────────────────────────────────────────────────
+            if (context.eventName === 'schedule') {
+              const parts = new Intl.DateTimeFormat('en-AU', {
+                timeZone: 'Australia/Melbourne',
+                year: 'numeric', month: '2-digit', day: '2-digit',
+              }).formatToParts(new Date());
+              const p = (t) => parts.find(x => x.type === t).value;
+              const today = `${p('year')}.${p('month')}.${p('day')}`;
+
+              const drafts = (await allReleases())
+                .filter(r => r.draft)
+                .filter(r => { try { validateVersion(r.tag_name); return baseDate(r.tag_name) === today; } catch { return false; } })
+                .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+              if (!drafts.length) {
+                core.notice(`No draft release found for ${today}; nothing to publish.`);
+                setOutputs({ shouldRelease: false });
+                return;
+              }
+              if (drafts.length > 1) core.warning(`Multiple drafts match ${today}; using newest: ${drafts[0].tag_name}`);
+
+              const draft = drafts[0];
+              setOutputs({ shouldRelease: true, version: draft.tag_name,
+                ref: draft.target_commitish || defaultBranch, releaseId: draft.id, fromDraft: true });
+              return;
+            }
+
+            // ── push tag ─────────────────────────────────────────────────────
+            const version = context.eventName === 'push'
+              ? context.ref.replace('refs/tags/', '')
+              : process.env.INPUT_VERSION;
+
+            validateVersion(version);
+
+            if (context.eventName === 'push') {
+              setOutputs({ shouldRelease: true, version, ref: version, fromDraft: false });
+              return;
+            }
+
+            // ── workflow_dispatch ─────────────────────────────────────────────
+            const draft = (await allReleases()).find(r => r.draft && r.tag_name === version);
+            if (draft) {
+              setOutputs({ shouldRelease: true, version, ref: draft.target_commitish || defaultBranch,
+                releaseId: draft.id, fromDraft: true });
+              return;
+            }
+            setOutputs({ shouldRelease: true, version, ref: process.env.INPUT_REF || defaultBranch, fromDraft: false });
+
+# ── Build ──────────────────────────────────────────────────────────────────────
+  build:
+    name: Build (${{ matrix.label }})
+    needs: prepare
+    if: needs.prepare.outputs.should_release == 'true'
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label:   Windows x64
+            runner:  windows-latest
+            rid:     win-x64
+            admin_artifact:  AvidProjectWatcher-Admin-win-x64.zip
+            daemon_artifact: AvidProjectWatcher-Daemon-win-x64.zip
+
+          - label:   macOS arm64
+            runner:  macos-latest
+            rid:     osx-arm64
+            admin_artifact:  AvidProjectWatcher-Admin-osx-arm64.dmg
+            daemon_artifact: AvidProjectWatcher-Daemon-osx-arm64.zip
+
+          - label:   macOS x64
+            runner:  macos-13
+            rid:     osx-x64
+            admin_artifact:  AvidProjectWatcher-Admin-osx-x64.dmg
+            daemon_artifact: AvidProjectWatcher-Daemon-osx-x64.zip
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.ref }}
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      # ── Publish Admin UI ──────────────────────────────────────────────────
+      - name: Publish Admin UI
+        run: |
+          dotnet publish src/AvidProjectWatcher.Admin/AvidProjectWatcher.Admin.csproj \
+            -c Release \
+            -r ${{ matrix.rid }} \
+            --self-contained true \
+            -p:Version=${{ needs.prepare.outputs.version }} \
+            -o ./out/admin/${{ matrix.rid }}
+
+      # ── Publish Daemon ────────────────────────────────────────────────────
+      - name: Publish Daemon
+        run: |
+          dotnet publish src/AvidProjectWatcher.Daemon/AvidProjectWatcher.Daemon.csproj \
+            -c Release \
+            -r ${{ matrix.rid }} \
+            --self-contained true \
+            -p:Version=${{ needs.prepare.outputs.version }} \
+            -o ./out/daemon/${{ matrix.rid }}
+
+      # ── Windows: zip both ─────────────────────────────────────────────────
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Compress-Archive -Path ./out/admin/${{ matrix.rid }}/*  -DestinationPath dist/${{ matrix.admin_artifact }}
+          Compress-Archive -Path ./out/daemon/${{ matrix.rid }}/* -DestinationPath dist/${{ matrix.daemon_artifact }}
+
+      # ── macOS: .app bundle + DMG for Admin, zip for Daemon ───────────────
+      - name: Package (macOS)
+        if: runner.os == 'macOS'
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -e
+          mkdir -p dist
+
+          BINARY="AvidProjectWatcher.Admin"
+          BUNDLE="Avid Project Watcher.app"
+
+          mkdir -p "${BUNDLE}/Contents/MacOS"
+          mkdir -p "${BUNDLE}/Contents/Resources"
+
+          cp "./out/admin/${{ matrix.rid }}/${BINARY}" "${BUNDLE}/Contents/MacOS/${BINARY}"
+          chmod +x "${BUNDLE}/Contents/MacOS/${BINARY}"
+
+          # ── Info.plist ──────────────────────────────────────────────────
+          cat > "${BUNDLE}/Contents/Info.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleName</key>              <string>Avid Project Watcher</string>
+            <key>CFBundleDisplayName</key>       <string>Avid Project Watcher</string>
+            <key>CFBundleIdentifier</key>        <string>com.markbattistella.avidprojectwatcher</string>
+            <key>CFBundleVersion</key>           <string>${VERSION}</string>
+            <key>CFBundleShortVersionString</key><string>${VERSION}</string>
+            <key>CFBundleExecutable</key>        <string>${BINARY}</string>
+            <key>CFBundlePackageType</key>       <string>APPL</string>
+            <key>NSHighResolutionCapable</key>   <true/>
+            <key>LSMinimumSystemVersion</key>    <string>11.0</string>
+            <key>NSHumanReadableCopyright</key>  <string>Copyright © 2026 Mark Battistella. All rights reserved.</string>
+          </dict>
+          </plist>
+          PLIST
+
+          # ── Icon (.icns from PNG) ────────────────────────────────────────
+          ICON_SRC="src/AvidProjectWatcher.Admin/Assets/icon.png"
+          if [ -f "$ICON_SRC" ]; then
+            mkdir -p AppIcon.iconset
+            for size in 16 32 64 128 256 512; do
+              sips -z $size $size "$ICON_SRC" --out "AppIcon.iconset/icon_${size}x${size}.png" > /dev/null
+            done
+            sips -z 32  32  "$ICON_SRC" --out AppIcon.iconset/icon_16x16@2x.png  > /dev/null
+            sips -z 64  64  "$ICON_SRC" --out AppIcon.iconset/icon_32x32@2x.png  > /dev/null
+            sips -z 256 256 "$ICON_SRC" --out AppIcon.iconset/icon_128x128@2x.png > /dev/null
+            sips -z 512 512 "$ICON_SRC" --out AppIcon.iconset/icon_256x256@2x.png > /dev/null
+            sips -z 512 512 "$ICON_SRC" --out AppIcon.iconset/icon_512x512.png    > /dev/null
+            iconutil -c icns AppIcon.iconset -o "${BUNDLE}/Contents/Resources/AppIcon.icns"
+            /usr/libexec/PlistBuddy -c "Add :CFBundleIconFile string AppIcon" "${BUNDLE}/Contents/Info.plist"
+          fi
+
+          # ── DMG ─────────────────────────────────────────────────────────
+          hdiutil create \
+            -volname "Avid Project Watcher" \
+            -srcfolder "${BUNDLE}" \
+            -ov -format UDZO \
+            "dist/${{ matrix.admin_artifact }}"
+
+          # ── Daemon zip ───────────────────────────────────────────────────
+          cd ./out/daemon/${{ matrix.rid }}
+          zip -r "../../../dist/${{ matrix.daemon_artifact }}" .
+          cd -
+
+      - name: Upload Admin artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.admin_artifact }}
+          path: dist/${{ matrix.admin_artifact }}
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload Daemon artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.daemon_artifact }}
+          path: dist/${{ matrix.daemon_artifact }}
+          if-no-files-found: error
+          retention-days: 14
+
+# ── Publish ────────────────────────────────────────────────────────────────────
+  publish:
+    name: Publish release
+    needs: [prepare, build]
+    if: needs.prepare.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+
+      - name: Attach assets to existing draft
+        if: needs.prepare.outputs.from_draft == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.prepare.outputs.version }}
+          draft: true
+          fail_on_unmatched_files: true
+          files: release-assets/**/*
+
+      - name: Publish existing draft
+        if: needs.prepare.outputs.from_draft == 'true'
+        uses: actions/github-script@v7
+        env:
+          RELEASE_ID: ${{ needs.prepare.outputs.release_id }}
+        with:
+          script: |
+            await github.rest.repos.updateRelease({
+              owner: context.repo.owner,
+              repo:  context.repo.repo,
+              release_id: Number(process.env.RELEASE_ID),
+              draft: false,
+            });
+
+      - name: Create and publish new release
+        if: needs.prepare.outputs.from_draft != 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name:             ${{ needs.prepare.outputs.version }}
+          target_commitish:     ${{ needs.prepare.outputs.ref }}
+          name:                 ${{ needs.prepare.outputs.version }}
+          generate_release_notes: true
+          make_latest:          true
+          fail_on_unmatched_files: true
+          files: release-assets/**/*

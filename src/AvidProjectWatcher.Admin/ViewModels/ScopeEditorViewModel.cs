@@ -12,6 +12,20 @@ public sealed class ScopeEditorViewModel : ViewModelBase
     private string newExcludedPath = string.Empty;
     private string? selectedExcludedPath;
 
+    public ScopeEditorViewModel()
+    {
+        FolderTemplate.CollectionChanged += (_, _) =>
+        {
+            RaisePropertyChanged(nameof(HasFolderTemplate));
+            RaisePropertyChanged(nameof(HasNoFolderTemplate));
+        };
+        ExcludedPaths.CollectionChanged += (_, _) =>
+        {
+            RaisePropertyChanged(nameof(HasExcludedPaths));
+            RaisePropertyChanged(nameof(HasNoExcludedPaths));
+        };
+    }
+
     public Guid Id { get; init; } = Guid.NewGuid();
 
     public string Name
@@ -35,6 +49,8 @@ public sealed class ScopeEditorViewModel : ViewModelBase
             {
                 RaisePropertyChanged(nameof(DisplayName));
                 RaisePropertyChanged(nameof(HasRootPath));
+                RaisePropertyChanged(nameof(RootPathWarning));
+                RaisePropertyChanged(nameof(HasRootPathWarning));
             }
         }
     }
@@ -48,6 +64,31 @@ public sealed class ScopeEditorViewModel : ViewModelBase
     public string DisplayName => DeriveName(RootPath, Name);
 
     public bool HasRootPath => !string.IsNullOrWhiteSpace(RootPath);
+
+    public string? RootPathWarning
+    {
+        get
+        {
+            var trimmed = RootPath.Trim();
+            if (string.IsNullOrWhiteSpace(trimmed)) return null;
+
+            // UNC network path: \\server\share or //server/share
+            if (trimmed.StartsWith(@"\\") || trimmed.StartsWith("//")) return null;
+            // Windows drive letter: C:\... or mapped drive Z:\...
+            if (trimmed.Length >= 2 && char.IsLetter(trimmed[0]) && trimmed[1] == ':') return null;
+            // Unix/macOS absolute path: /Volumes/... or /mnt/...
+            if (trimmed.StartsWith('/')) return null;
+
+            return @"This doesn't look like a valid path. Use a network share (\\server\share), a drive letter (C:\) or a mount point (/).";
+        }
+    }
+
+    public bool HasRootPathWarning => RootPathWarning is not null;
+
+    public bool HasFolderTemplate => FolderTemplate.Count > 0;
+    public bool HasNoFolderTemplate => FolderTemplate.Count == 0;
+    public bool HasExcludedPaths => ExcludedPaths.Count > 0;
+    public bool HasNoExcludedPaths => ExcludedPaths.Count == 0;
 
     public ObservableCollection<FolderTemplateItemViewModel> FolderTemplate { get; } = [];
 

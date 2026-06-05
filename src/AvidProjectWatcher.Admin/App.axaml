@@ -14,6 +14,7 @@
     <StreamGeometry x:Key="OcticonSync">M1.705 8.005a6.5 6.5 0 0 1 11.064-4.596l.746.746V1.75a.75.75 0 0 1 1.5 0v4.25a.75.75 0 0 1-.75.75h-4.25a.75.75 0 0 1 0-1.5h2.47l-.846-.846A5 5 0 1 0 13 8a.75.75 0 0 1 1.5 0 6.5 6.5 0 1 1-13 0Z</StreamGeometry>
     <StreamGeometry x:Key="OcticonTrash">M11 1.75V3h2.25a.75.75 0 0 1 0 1.5h-.641l-.7 8.235A2.5 2.5 0 0 1 9.417 15H6.583a2.5 2.5 0 0 1-2.492-2.265L3.391 4.5H2.75a.75.75 0 0 1 0-1.5H5V1.75C5 .784 5.784 0 6.75 0h2.5C10.216 0 11 .784 11 1.75ZM6.5 3h3V1.75a.25.25 0 0 0-.25-.25h-2.5a.25.25 0 0 0-.25.25V3Zm-1.604 1.5.689 8.108a1 1 0 0 0 .998.892h2.834a1 1 0 0 0 .998-.892l.689-8.108H4.896Z</StreamGeometry>
     <StreamGeometry x:Key="OcticonX">M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.75.75 0 1 1 1.06 1.06L9.06 8l3.22 3.22a.75.75 0 1 1-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 0 1-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z</StreamGeometry>
+    <StreamGeometry x:Key="OcticonAlert">M6.457 1.047c.659-1.234 2.427-1.234 3.086 0l6.082 11.378A1.75 1.75 0 0 1 14.082 15H1.918a1.75 1.75 0 0 1-1.543-2.575Zm1.763.707a.25.25 0 0 0-.44 0L1.698 13.132a.25.25 0 0 0 .22.368h12.164a.25.25 0 0 0 .22-.368Zm.53 3.996v2.5a.75.75 0 0 1-1.5 0v-2.5a.75.75 0 0 1 1.5 0ZM9 11a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z</StreamGeometry>
   </Application.Resources>
 
   <Application.Styles>
@@ -99,6 +100,7 @@
       <Setter Property="Background" Value="#0d1117" />
       <Setter Property="Foreground" Value="#e6edf3" />
       <Setter Property="BorderBrush" Value="#30363d" />
+      <Setter Property="CornerRadius" Value="8" />
     </Style>
 
     <Style Selector="ListBoxItem">
@@ -152,10 +154,29 @@
       <Setter Property="BorderBrush" Value="#30363d" />
     </Style>
 
+    <Style Selector="Button.secondary">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="Foreground" Value="#a78bfa" />
+      <Setter Property="BorderBrush" Value="#5b21b6" />
+      <Setter Property="BorderThickness" Value="1" />
+    </Style>
+
     <Style Selector="Button.danger">
       <Setter Property="Background" Value="#25171c" />
       <Setter Property="Foreground" Value="#ffb4ab" />
       <Setter Property="BorderBrush" Value="#5f272f" />
+    </Style>
+
+    <Style Selector="Border.statusDot">
+      <Setter Property="Width" Value="7" />
+      <Setter Property="Height" Value="7" />
+      <Setter Property="CornerRadius" Value="4" />
+      <Setter Property="Background" Value="#ef4444" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+
+    <Style Selector="Border.statusDot.connected">
+      <Setter Property="Background" Value="#22c55e" />
     </Style>
 
     <Style Selector="PathIcon">

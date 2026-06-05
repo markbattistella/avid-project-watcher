@@ -17,6 +17,19 @@ public sealed partial class MainWindow : Window
         Opened += async (_, _) => await ViewModel.LoadAsync();
     }
 
+    private void RootPath_Drop(object? sender, DragEventArgs args)
+    {
+        if (ViewModel.SelectedScope is null) return;
+
+        var files = args.DataTransfer.TryGetFiles();
+        var folder = files?.OfType<IStorageFolder>().FirstOrDefault();
+        if (folder is not null)
+        {
+            ViewModel.SelectedScope.RootPath = folder.Path.LocalPath;
+            args.Handled = true;
+        }
+    }
+
     private async void BrowseRoot_Click(object? sender, RoutedEventArgs args)
     {
         if (ViewModel.SelectedScope is null)
@@ -110,6 +123,24 @@ public sealed partial class MainWindow : Window
 
         ViewModel.RemoveFolder(folder);
         args.Handled = true;
+    }
+
+    private void NewFolderName_KeyDown(object? sender, KeyEventArgs args)
+    {
+        if (args.Key == Key.Enter)
+        {
+            ViewModel.AddFolder();
+            args.Handled = true;
+        }
+    }
+
+    private void NewExcludedPath_KeyDown(object? sender, KeyEventArgs args)
+    {
+        if (args.Key == Key.Enter)
+        {
+            ViewModel.AddExclusion();
+            args.Handled = true;
+        }
     }
 
     private void FolderTemplateItem_DoubleTapped(object? sender, TappedEventArgs args)

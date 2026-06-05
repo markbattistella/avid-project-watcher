@@ -3,35 +3,72 @@
     xmlns="https://github.com/avaloniaui"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     Title="Avid Project Watcher"
+    Icon="avares://AvidProjectWatcher.Admin/Assets/icon.png"
     Width="1200"
     Height="760"
     MinWidth="980"
     MinHeight="640">
   <Grid>
-    <Grid ColumnDefinitions="280,*">
-      <Border Grid.Column="0" Classes="sidebar">
-        <DockPanel>
-          <Border DockPanel.Dock="Top" Padding="16,14" BorderBrush="#30363d" BorderThickness="0,0,0,1">
-            <StackPanel>
+    <DockPanel>
+
+      <!-- ── Unified header ─────────────────────────────────────────────── -->
+      <Border DockPanel.Dock="Top" Background="#161b22" BorderBrush="#30363d" BorderThickness="0,0,0,1">
+        <Grid ColumnDefinitions="280,*">
+
+          <!-- Left: brand + daemon status -->
+          <Border Grid.Column="0" BorderBrush="#30363d" BorderThickness="0,0,1,0" Padding="16,13">
+            <StackPanel VerticalAlignment="Center" Spacing="4">
               <TextBlock Classes="brandTitle" Text="Avid Project Watcher" />
-              <TextBlock Classes="brandSub" Text="Service Admin" Margin="0,2,0,0" />
+              <StackPanel Orientation="Horizontal" Spacing="6">
+                <Border Classes="statusDot" Classes.connected="{Binding IsDaemonConnected}" ToolTip.Tip="{Binding DaemonUrl}" />
+                <TextBlock Classes="brandSub" Text="{Binding DaemonStatusLabel}" />
+              </StackPanel>
             </StackPanel>
           </Border>
 
-          <StackPanel DockPanel.Dock="Bottom" Margin="12" Spacing="8">
-            <TextBlock Classes="muted" Text="Local daemon: http://localhost:47821" TextWrapping="Wrap" />
-          </StackPanel>
+          <!-- Right: status feedback + actions -->
+          <Grid Grid.Column="1" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8" Margin="18,13">
+            <TextBlock
+                VerticalAlignment="Center"
+                Classes="muted"
+                Text="{Binding StatusText}"
+                TextTrimming="CharacterEllipsis" />
+            <Button Grid.Column="1" Classes="primary compact" VerticalAlignment="Center" IsVisible="{Binding IsDirty}" Command="{Binding SaveCommand}" ToolTip.Tip="Save your config and tell the daemon to pick up the changes.">
+              <StackPanel Orientation="Horizontal" Spacing="6">
+                <PathIcon Data="{StaticResource OcticonCheck}" />
+                <TextBlock Text="Apply Changes" />
+              </StackPanel>
+            </Button>
+            <Button Grid.Column="2" Classes="icon" VerticalAlignment="Center" Command="{Binding OpenSettingsPanelCommand}" ToolTip.Tip="Settings">
+              <PathIcon Data="{StaticResource OcticonGear}" />
+            </Button>
+          </Grid>
 
+        </Grid>
+      </Border>
+
+      <!-- ── Body ───────────────────────────────────────────────────────── -->
+      <Grid ColumnDefinitions="280,*">
+
+        <!-- Sidebar -->
+        <Border Grid.Column="0" Classes="sidebar">
           <DockPanel Margin="12">
             <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto" Margin="0,0,0,8">
               <TextBlock Classes="muted" Text="WATCH FOLDERS" FontWeight="SemiBold" VerticalAlignment="Center" />
-              <Button Grid.Column="1" Classes="compact" Command="{Binding AddScopeCommand}">
+              <Button Grid.Column="1" Classes="compact" VerticalAlignment="Center" Command="{Binding AddScopeCommand}">
                 <StackPanel Orientation="Horizontal" Spacing="6">
                   <PathIcon Data="{StaticResource OcticonPlus}" />
                   <TextBlock Text="New" FontSize="13" />
                 </StackPanel>
               </Button>
             </Grid>
+
+            <Border DockPanel.Dock="Bottom" BorderBrush="#30363d" BorderThickness="0,1,0,0" Padding="0,8,0,0" Margin="0,4,0,0">
+              <StackPanel Spacing="2">
+                <TextBlock Classes="muted" Text="{Binding AppVersion}" FontSize="11" />
+                <TextBlock Classes="muted" Text="{Binding Copyright}" FontSize="11" />
+              </StackPanel>
+            </Border>
 
             <ListBox
                 ItemsSource="{Binding Scopes}"
@@ -52,152 +89,208 @@
               </ListBox.ItemTemplate>
             </ListBox>
           </DockPanel>
-        </DockPanel>
-      </Border>
-
-      <DockPanel Grid.Column="1">
-        <Border DockPanel.Dock="Top" Classes="appHeader" Padding="18,13">
-          <Grid ColumnDefinitions="*,Auto">
-            <StackPanel>
-              <TextBlock Classes="sectionTitle" Text="Watcher Console" />
-              <TextBlock Classes="muted" Text="{Binding StatusText}" TextWrapping="Wrap" Margin="0,2,0,0" />
-            </StackPanel>
-            <Button Grid.Column="1" Classes="icon" Command="{Binding OpenSettingsPanelCommand}" ToolTip.Tip="Settings">
-              <PathIcon Data="{StaticResource OcticonGear}" />
-            </Button>
-          </Grid>
         </Border>
 
-        <ScrollViewer>
-          <StackPanel Margin="18" Spacing="14">
-            <Border Classes="panel" Padding="14">
-              <StackPanel Spacing="12">
-                <StackPanel>
+        <!-- Content -->
+        <Panel Grid.Column="1">
+          <ScrollViewer IsVisible="{Binding HasSelectedScope}">
+            <StackPanel Margin="18" Spacing="14">
+
+              <Border Classes="panel" Padding="14">
+                <StackPanel Spacing="12">
                   <TextBlock Text="{Binding SelectedScope.DisplayName}" FontSize="16" FontWeight="SemiBold" />
-                  <TextBlock Classes="muted" Text="Project root" />
-                </StackPanel>
 
-                <Grid ColumnDefinitions="*,Auto">
-                  <TextBox
-                      Text="{Binding SelectedScope.RootPath}"
-                      Watermark="Share, mounted path, mapped drive, or folder" />
-                  <Button Grid.Column="1" Click="BrowseRoot_Click" Margin="8,0,0,0">
-                    <StackPanel Orientation="Horizontal" Spacing="6">
-                      <PathIcon Data="{StaticResource OcticonFolder}" />
-                      <TextBlock Text="Browse" />
+                  <StackPanel Spacing="4">
+                    <Grid ColumnDefinitions="*,Auto">
+                      <TextBox
+                          Text="{Binding SelectedScope.RootPath}"
+                          Watermark="Share path, mapped drive, or local folder (or drag one here)"
+                          DragDrop.AllowDrop="True"
+                          DragDrop.Drop="RootPath_Drop" />
+                      <Button Grid.Column="1" Classes="icon" Click="BrowseRoot_Click" Margin="8,0,0,0" ToolTip.Tip="Browse for folder">
+                        <PathIcon Data="{StaticResource OcticonFolder}" />
+                      </Button>
+                    </Grid>
+                    <StackPanel
+                        Orientation="Horizontal"
+                        Spacing="4"
+                        IsVisible="{Binding SelectedScope.HasRootPathWarning}">
+                      <PathIcon Data="{StaticResource OcticonAlert}" Width="12" Height="12" Foreground="#f59e0b" />
+                      <TextBlock
+                          Text="{Binding SelectedScope.RootPathWarning}"
+                          Foreground="#f59e0b"
+                          FontSize="11" />
                     </StackPanel>
-                  </Button>
-                </Grid>
-              </StackPanel>
-            </Border>
+                  </StackPanel>
+                </StackPanel>
+              </Border>
 
-            <Border Classes="panel" Padding="14" IsEnabled="{Binding HasSelectedRootPath}">
-              <DockPanel>
-                <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto" Margin="0,0,0,10">
+              <!-- Folder Template - moved before Exclusions: it's the core feature -->
+              <Border Classes="panel" Padding="14" IsEnabled="{Binding HasSelectedRootPath}">
+                <DockPanel>
+                  <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto" Margin="0,0,0,10">
+                    <StackPanel>
+                      <TextBlock Text="Folder Template" FontSize="15" FontWeight="SemiBold" />
+                      <TextBlock Classes="muted" Text="Folders to create inside each new project." />
+                    </StackPanel>
+                  </Grid>
+
+                  <Grid DockPanel.Dock="Bottom" ColumnDefinitions="*,Auto" Margin="0,10,0,0">
+                    <TextBox Text="{Binding SelectedScope.NewFolderName}" Watermark="CONFORM" KeyDown="NewFolderName_KeyDown" />
+                    <Button Grid.Column="1" Command="{Binding AddFolderCommand}" Margin="8,0,0,0">
+                      <StackPanel Orientation="Horizontal" Spacing="6">
+                        <PathIcon Data="{StaticResource OcticonPlus}" />
+                        <TextBlock Text="Add" />
+                      </StackPanel>
+                    </Button>
+                  </Grid>
+
+                  <Panel MinHeight="100">
+                    <ListBox
+                        IsVisible="{Binding SelectedScope.HasFolderTemplate}"
+                        MinHeight="100"
+                        ItemsSource="{Binding SelectedScope.FolderTemplate}"
+                        SelectedItem="{Binding SelectedScope.SelectedFolder}">
+                      <ListBox.ItemTemplate>
+                        <DataTemplate>
+                          <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8" Margin="2,4" DoubleTapped="FolderTemplateItem_DoubleTapped">
+                            <TextBlock Text="{Binding Name}" IsVisible="{Binding IsNotEditing}" VerticalAlignment="Center" Margin="4,0" />
+                            <TextBox Grid.Column="0" Classes="inlineEdit" Text="{Binding Name, Mode=TwoWay}" IsVisible="{Binding IsEditing}" LostFocus="FolderTemplateEdit_LostFocus" KeyDown="FolderTemplateEdit_KeyDown" />
+                            <Button Grid.Column="1" Classes="icon" Click="EditFolderTemplate_Click" ToolTip.Tip="Edit folder name">
+                              <PathIcon Data="{StaticResource OcticonPencil}" />
+                            </Button>
+                            <Button Grid.Column="2" Classes="icon danger" Click="RemoveFolderTemplate_Click" ToolTip.Tip="Remove folder">
+                              <PathIcon Data="{StaticResource OcticonTrash}" />
+                            </Button>
+                          </Grid>
+                        </DataTemplate>
+                      </ListBox.ItemTemplate>
+                    </ListBox>
+                    <Border
+                        IsVisible="{Binding SelectedScope.HasNoFolderTemplate}"
+                        Background="#0d1117"
+                        BorderBrush="#30363d"
+                        BorderThickness="1"
+                        CornerRadius="4"
+                        MinHeight="100">
+                      <TextBlock
+                          Text="No folders yet. Type a name like FOOTAGE and press Enter. Nested paths are not supported."
+                          Classes="muted"
+                          HorizontalAlignment="Center"
+                          VerticalAlignment="Center"
+                          TextWrapping="Wrap"
+                          TextAlignment="Center"
+                          Margin="12" />
+                    </Border>
+                  </Panel>
+                </DockPanel>
+              </Border>
+
+              <!-- Excluded Paths - optional, so comes after the template -->
+              <Border Classes="panel" Padding="14" IsEnabled="{Binding HasSelectedRootPath}">
+                <DockPanel>
+                  <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto" Margin="0,0,0,10">
+                    <StackPanel>
+                      <TextBlock Text="Excluded Paths" FontSize="15" FontWeight="SemiBold" />
+                      <TextBlock Classes="muted" Text="Projects under these folders are skipped." />
+                    </StackPanel>
+                  </Grid>
+
+                  <!-- No Add button: Browse directly adds, Enter adds, drop adds -->
+                  <Grid DockPanel.Dock="Bottom" ColumnDefinitions="*,Auto" Margin="0,10,0,0">
+                    <TextBox Text="{Binding SelectedScope.NewExcludedPath}" Watermark="Type a path and press Enter, or drop a folder above" KeyDown="NewExcludedPath_KeyDown" />
+                    <Button Grid.Column="1" Classes="icon" Click="BrowseExclusion_Click" Margin="8,0,0,0" ToolTip.Tip="Browse for folder to exclude">
+                      <PathIcon Data="{StaticResource OcticonFolder}" />
+                    </Button>
+                  </Grid>
+
+                  <Panel MinHeight="80">
+                    <ListBox
+                        IsVisible="{Binding SelectedScope.HasExcludedPaths}"
+                        MinHeight="80"
+                        ItemsSource="{Binding SelectedScope.ExcludedPaths}"
+                        SelectedItem="{Binding SelectedScope.SelectedExcludedPath}"
+                        DragDrop.AllowDrop="True"
+                        DragDrop.Drop="Exclusions_Drop">
+                      <ListBox.ItemTemplate>
+                        <DataTemplate>
+                          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8" Margin="2,4">
+                            <TextBlock Text="{Binding}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Margin="4,0" />
+                            <Button Grid.Column="1" Classes="icon danger" Click="RemoveExclusionPath_Click" ToolTip.Tip="Remove excluded path">
+                              <PathIcon Data="{StaticResource OcticonTrash}" />
+                            </Button>
+                          </Grid>
+                        </DataTemplate>
+                      </ListBox.ItemTemplate>
+                    </ListBox>
+                    <Border
+                        IsVisible="{Binding SelectedScope.HasNoExcludedPaths}"
+                        Background="#0d1117"
+                        BorderBrush="#30363d"
+                        BorderThickness="1"
+                        CornerRadius="4"
+                        MinHeight="80">
+                      <TextBlock
+                          Text="No excluded paths - all projects under the root are watched. Drop folders here or type a path below."
+                          Classes="muted"
+                          HorizontalAlignment="Center"
+                          VerticalAlignment="Center"
+                          TextWrapping="Wrap"
+                          TextAlignment="Center"
+                          Margin="12" />
+                    </Border>
+                  </Panel>
+                </DockPanel>
+              </Border>
+
+              <Border Classes="panel" Padding="14">
+                <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
                   <StackPanel>
-                    <TextBlock Text="Excluded Paths" FontSize="15" FontWeight="SemiBold" />
-                    <TextBlock Classes="muted" Text="Projects under these folders are skipped." />
+                    <TextBlock Text="Review &amp; Maintenance" FontSize="15" FontWeight="SemiBold" />
+                    <TextBlock Classes="muted" Text="Catch up existing projects with a backfill, or view the audit log." />
                   </StackPanel>
-                </Grid>
-
-                <Grid DockPanel.Dock="Bottom" ColumnDefinitions="*,Auto,Auto" Margin="0,10,0,0">
-                  <TextBox Text="{Binding SelectedScope.NewExcludedPath}" Watermark="Folder path to exclude" />
-                  <Button Grid.Column="1" Command="{Binding AddExclusionCommand}" Margin="8,0,0,0">
+                  <Button Grid.Column="1" Command="{Binding OpenBackfillPanelCommand}" IsEnabled="{Binding HasSelectedRootPath}">
                     <StackPanel Orientation="Horizontal" Spacing="6">
-                      <PathIcon Data="{StaticResource OcticonPlus}" />
-                      <TextBlock Text="Add" />
+                      <PathIcon Data="{StaticResource OcticonSync}" />
+                      <TextBlock Text="Backfill" />
                     </StackPanel>
                   </Button>
-                  <Button Grid.Column="2" Click="BrowseExclusion_Click" Margin="8,0,0,0" IsEnabled="{Binding HasSelectedRootPath}">
+                  <Button Grid.Column="2" Command="{Binding OpenLogsPanelCommand}">
                     <StackPanel Orientation="Horizontal" Spacing="6">
-                      <PathIcon Data="{StaticResource OcticonFolder}" />
-                      <TextBlock Text="Browse" />
+                      <PathIcon Data="{StaticResource OcticonDownload}" />
+                      <TextBlock Text="Logs" />
                     </StackPanel>
                   </Button>
                 </Grid>
+              </Border>
 
-                <ListBox
-                    MinHeight="190"
-                    ItemsSource="{Binding SelectedScope.ExcludedPaths}"
-                    SelectedItem="{Binding SelectedScope.SelectedExcludedPath}"
-                    DragDrop.AllowDrop="True"
-                    DragDrop.Drop="Exclusions_Drop">
-                  <ListBox.ItemTemplate>
-                    <DataTemplate>
-                      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8" Margin="2,4">
-                        <TextBlock Text="{Binding}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Margin="4,0" />
-                        <Button Grid.Column="1" Classes="icon danger" Click="RemoveExclusionPath_Click" ToolTip.Tip="Remove excluded path">
-                          <PathIcon Data="{StaticResource OcticonTrash}" />
-                        </Button>
-                      </Grid>
-                    </DataTemplate>
-                  </ListBox.ItemTemplate>
-                </ListBox>
-              </DockPanel>
-            </Border>
+            </StackPanel>
+          </ScrollViewer>
 
-            <Border Classes="panel" Padding="14" IsEnabled="{Binding HasSelectedRootPath}">
-              <DockPanel>
-                <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto" Margin="0,0,0,10">
-                  <TextBlock Text="Folder Template" FontSize="15" FontWeight="SemiBold" />
-                </Grid>
-
-                <Grid DockPanel.Dock="Bottom" ColumnDefinitions="*,Auto" Margin="0,10,0,0">
-                  <TextBox Text="{Binding SelectedScope.NewFolderName}" Watermark="CONFORM" />
-                  <Button Grid.Column="1" Command="{Binding AddFolderCommand}" Margin="8,0,0,0">
-                    <StackPanel Orientation="Horizontal" Spacing="6">
-                      <PathIcon Data="{StaticResource OcticonPlus}" />
-                      <TextBlock Text="Add" />
-                    </StackPanel>
-                  </Button>
-                </Grid>
-
-                <ListBox
-                    MinHeight="170"
-                    ItemsSource="{Binding SelectedScope.FolderTemplate}"
-                    SelectedItem="{Binding SelectedScope.SelectedFolder}">
-                  <ListBox.ItemTemplate>
-                    <DataTemplate>
-                      <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8" Margin="2,4" DoubleTapped="FolderTemplateItem_DoubleTapped">
-                        <TextBlock Text="{Binding Name}" IsVisible="{Binding IsNotEditing}" VerticalAlignment="Center" Margin="4,0" />
-                        <TextBox Grid.Column="0" Classes="inlineEdit" Text="{Binding Name, Mode=TwoWay}" IsVisible="{Binding IsEditing}" LostFocus="FolderTemplateEdit_LostFocus" KeyDown="FolderTemplateEdit_KeyDown" />
-                        <Button Grid.Column="1" Classes="icon" Click="EditFolderTemplate_Click" ToolTip.Tip="Edit folder name">
-                          <PathIcon Data="{StaticResource OcticonPencil}" />
-                        </Button>
-                        <Button Grid.Column="2" Classes="icon danger" Click="RemoveFolderTemplate_Click" ToolTip.Tip="Remove folder">
-                          <PathIcon Data="{StaticResource OcticonTrash}" />
-                        </Button>
-                      </Grid>
-                    </DataTemplate>
-                  </ListBox.ItemTemplate>
-                </ListBox>
-              </DockPanel>
-            </Border>
-
-            <Border Classes="panel" Padding="14">
-              <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
-                <StackPanel>
-                  <TextBlock Text="Review &amp; Maintenance" FontSize="15" FontWeight="SemiBold" />
-                  <TextBlock Classes="muted" Text="Open a modal side sheet to review backfill or audit logs." />
-                </StackPanel>
-                <Button Grid.Column="1" Command="{Binding OpenBackfillPanelCommand}" IsEnabled="{Binding HasSelectedRootPath}">
-                  <StackPanel Orientation="Horizontal" Spacing="6">
-                    <PathIcon Data="{StaticResource OcticonPlay}" />
-                    <TextBlock Text="Backfill" />
-                  </StackPanel>
-                </Button>
-                <Button Grid.Column="2" Command="{Binding OpenLogsPanelCommand}" IsEnabled="{Binding HasSelectedRootPath}">
-                  <StackPanel Orientation="Horizontal" Spacing="6">
-                    <PathIcon Data="{StaticResource OcticonDownload}" />
-                    <TextBlock Text="Logs" />
-                  </StackPanel>
-                </Button>
-              </Grid>
-            </Border>
+          <StackPanel
+              IsVisible="{Binding HasNoSelectedScope}"
+              HorizontalAlignment="Center"
+              VerticalAlignment="Center"
+              Spacing="8"
+              Margin="18">
+            <TextBlock
+                Text="No watch folder selected"
+                FontSize="15"
+                FontWeight="SemiBold"
+                HorizontalAlignment="Center" />
+            <TextBlock
+                Classes="muted"
+                Text="Select a watch folder from the sidebar, or click New to add one."
+                HorizontalAlignment="Center"
+                TextWrapping="Wrap"
+                TextAlignment="Center" />
           </StackPanel>
-        </ScrollViewer>
-      </DockPanel>
-    </Grid>
+        </Panel>
+
+      </Grid>
+    </DockPanel>
+
+    <!-- ── Overlays ───────────────────────────────────────────────────────── -->
 
     <Grid IsVisible="{Binding IsBackfillPanelOpen}" Background="#99000000">
       <Border Width="680" HorizontalAlignment="Right" Background="#161b22" BorderBrush="#30363d" BorderThickness="1,0,0,0" Padding="18">
@@ -213,15 +306,15 @@
           </Grid>
 
           <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="8" Margin="0,0,0,14">
-            <Button Command="{Binding RunBackfillDryRunCommand}">
+            <Button Classes="secondary" Command="{Binding RunBackfillDryRunCommand}">
               <StackPanel Orientation="Horizontal" Spacing="8">
-                <PathIcon Classes="largeIcon" Data="{StaticResource OcticonPlay}" />
+                <PathIcon Classes="largeIcon" Data="{StaticResource OcticonSync}" />
                 <TextBlock Text="Dry Run Selected" />
               </StackPanel>
             </Button>
-            <Button Command="{Binding RunBackfillAllDryRunCommand}">
+            <Button Classes="secondary" Command="{Binding RunBackfillAllDryRunCommand}">
               <StackPanel Orientation="Horizontal" Spacing="8">
-                <PathIcon Classes="largeIcon" Data="{StaticResource OcticonPlay}" />
+                <PathIcon Classes="largeIcon" Data="{StaticResource OcticonSync}" />
                 <TextBlock Text="Dry Run All" />
               </StackPanel>
             </Button>
@@ -233,14 +326,26 @@
             </Button>
           </StackPanel>
 
-          <DataGrid ItemsSource="{Binding BackfillPlans}" AutoGenerateColumns="False" IsReadOnly="True">
-            <DataGrid.Columns>
-              <DataGridTextColumn Header="Watch Folder" Binding="{Binding ScopeName}" Width="150" />
-              <DataGridTextColumn Header="Project" Binding="{Binding ProjectDirectory}" Width="*" />
-              <DataGridTextColumn Header="Missing" Binding="{Binding FoldersToCreate.Count}" Width="90" />
-              <DataGridTextColumn Header="Existing" Binding="{Binding FoldersAlreadyPresent.Count}" Width="90" />
-            </DataGrid.Columns>
-          </DataGrid>
+          <Panel>
+            <DataGrid IsVisible="{Binding HasBackfillPlans}" ItemsSource="{Binding BackfillPlans}" AutoGenerateColumns="False" IsReadOnly="True">
+              <DataGrid.Columns>
+                <DataGridTextColumn Header="Watch Folder" Binding="{Binding ScopeName}" Width="150" />
+                <DataGridTextColumn Header="Project" Binding="{Binding ProjectDirectory}" Width="*" />
+                <DataGridTextColumn Header="Missing" Binding="{Binding FoldersToCreate.Count}" Width="80" />
+                <DataGridTextColumn Header="Existing" Binding="{Binding FoldersAlreadyPresent.Count}" Width="80" />
+                <DataGridTextColumn Header="Skipped" Binding="{Binding SkippedReason}" Width="160" />
+              </DataGrid.Columns>
+            </DataGrid>
+            <TextBlock
+                IsVisible="{Binding HasNoBackfillPlans}"
+                Text="Run a dry run first to see which projects need folders."
+                Classes="muted"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                TextWrapping="Wrap"
+                TextAlignment="Center"
+                Margin="24" />
+          </Panel>
         </DockPanel>
       </Border>
     </Grid>
@@ -251,9 +356,9 @@
           <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto,Auto" Margin="0,0,0,14">
             <StackPanel>
               <TextBlock Classes="sectionTitle" Text="Audit Log" />
-              <TextBlock Classes="muted" Text="All daemon activity across watch folders." />
+              <TextBlock Classes="muted" Text="Activity log for all watched folders." />
             </StackPanel>
-            <Button Grid.Column="1" Click="ExportLogs_Click" Margin="0,0,8,0">
+            <Button Grid.Column="1" Classes="secondary" Click="ExportLogs_Click" Margin="0,0,8,0">
               <StackPanel Orientation="Horizontal" Spacing="6">
                 <PathIcon Data="{StaticResource OcticonDownload}" />
                 <TextBlock Text="Export CSV" />
@@ -264,16 +369,25 @@
             </Button>
           </Grid>
 
-          <DataGrid ItemsSource="{Binding Logs}" AutoGenerateColumns="False" IsReadOnly="True">
-            <DataGrid.Columns>
-              <DataGridTextColumn Header="UTC" Binding="{Binding TimestampUtc}" Width="170" />
-              <DataGridTextColumn Header="Type" Binding="{Binding EventType}" Width="150" />
-              <DataGridTextColumn Header="Watch Folder" Binding="{Binding ScopeName}" Width="150" />
-              <DataGridTextColumn Header="Project" Binding="{Binding ProjectPath}" Width="*" />
-              <DataGridTextColumn Header="Trigger" Binding="{Binding Trigger}" Width="110" />
-              <DataGridTextColumn Header="Message" Binding="{Binding Message}" Width="240" />
-            </DataGrid.Columns>
-          </DataGrid>
+          <Panel>
+            <DataGrid IsVisible="{Binding HasLogs}" ItemsSource="{Binding Logs}" AutoGenerateColumns="False" IsReadOnly="True">
+              <DataGrid.Columns>
+                <DataGridTextColumn Header="UTC" Binding="{Binding TimestampUtc, StringFormat='{}{0:yyyy-MM-dd HH:mm:ss}'}" Width="160" />
+                <DataGridTextColumn Header="Type" Binding="{Binding EventType}" Width="150" />
+                <DataGridTextColumn Header="Watch Folder" Binding="{Binding ScopeName}" Width="150" />
+                <DataGridTextColumn Header="Project" Binding="{Binding ProjectPath}" Width="*" />
+                <DataGridTextColumn Header="Trigger" Binding="{Binding Trigger}" Width="110" />
+                <DataGridTextColumn Header="Message" Binding="{Binding Message}" Width="240" />
+              </DataGrid.Columns>
+            </DataGrid>
+            <TextBlock
+                IsVisible="{Binding HasNoLogs}"
+                Text="No log entries found."
+                Classes="muted"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                Margin="24" />
+          </Panel>
         </DockPanel>
       </Border>
     </Grid>
@@ -284,7 +398,7 @@
           <Grid ColumnDefinitions="*,Auto">
             <StackPanel>
               <TextBlock Classes="sectionTitle" Text="Settings" />
-              <TextBlock Classes="muted" Text="Daemon config actions." />
+              <TextBlock Classes="muted" Text="Manage the daemon connection." />
             </StackPanel>
             <Button Grid.Column="1" Classes="icon" Command="{Binding ClosePanelCommand}">
               <PathIcon Data="{StaticResource OcticonX}" />
@@ -294,8 +408,8 @@
           <Border Classes="panel" Padding="14">
             <StackPanel Spacing="12">
               <TextBlock Text="Configuration" FontSize="15" FontWeight="SemiBold" />
-              <TextBlock Classes="muted" Text="Reload reads config/status/logs from the local daemon. Apply saves this editor state and lets the daemon hot-reload watchers." TextWrapping="Wrap" />
-              <Button Command="{Binding RefreshCommand}">
+              <TextBlock Classes="muted" Text="Reload fetches the latest config from the daemon. Apply sends your changes to the daemon so it picks them up." TextWrapping="Wrap" />
+              <Button Classes="secondary" Command="{Binding RefreshCommand}">
                 <StackPanel Orientation="Horizontal" Spacing="6">
                   <PathIcon Data="{StaticResource OcticonSync}" />
                   <TextBlock Text="Reload From Daemon" />
@@ -312,5 +426,6 @@
         </StackPanel>
       </Border>
     </Grid>
+
   </Grid>
 </Window>
