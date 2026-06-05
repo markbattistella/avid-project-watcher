@@ -185,17 +185,23 @@ jobs:
             -o ./out/daemon/${{ matrix.rid }}
 
       # ── Windows: Inno Setup installer with component selection ──────────────
+      # Uses PowerShell to avoid MSYS2 argument mangling when calling ISCC.exe.
+      # /O sets the output dir to dist/ in the project root (OutputDir in the
+      # .iss file is relative to the script directory, which would be wrong).
       - name: Package (Windows)
         if: runner.os == 'Windows'
+        shell: pwsh
         run: |
-          mkdir -p dist
-          ISCC="/c/Program Files (x86)/Inno Setup 6/ISCC.exe"
-          [ -f "$ISCC" ] || choco install innosetup -y --no-progress
-          "$ISCC" \
-            /DVersion=${{ needs.prepare.outputs.version }} \
-            "/DAdminDir=$(pwd)/out/admin/${{ matrix.rid }}" \
-            "/DDaemonDir=$(pwd)/out/daemon/${{ matrix.rid }}" \
-            scripts/windows-installer.iss
+          New-Item -ItemType Directory -Force dist | Out-Null
+          $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y }
+          $root = (Get-Location).Path
+          & $iscc `
+            "/DVersion=${{ needs.prepare.outputs.version }}" `
+            "/DAdminDir=$root\out\admin\${{ matrix.rid }}" `
+            "/DDaemonDir=$root\out\daemon\${{ matrix.rid }}" `
+            "/O$root\dist" `
+            "scripts\windows-installer.iss"
 
       # ── macOS: .app bundle + DMG for Admin, zip for Daemon ───────────────
       - name: Package (macOS)
