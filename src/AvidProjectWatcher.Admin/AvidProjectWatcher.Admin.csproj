@@ -1,5 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
+    <PackageLicenseExpression>AGPL-3.0-or-later</PackageLicenseExpression>
     <OutputType>WinExe</OutputType>
     <AssemblyName>AvidProjectWatcher.Admin</AssemblyName>
     <ApplicationTitle>Avid Project Watcher</ApplicationTitle>

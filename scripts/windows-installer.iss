@@ -1,3 +1,19 @@
+; Avid Project Watcher
+; Copyright (C) 2026  MB+MAB
+;
+; This program is free software: you can redistribute it and/or modify
+; it under the terms of the GNU Affero General Public License as published by
+; the Free Software Foundation, either version 3 of the License, or
+; (at your option) any later version.
+;
+; This program is distributed in the hope that it will be useful,
+; but WITHOUT ANY WARRANTY; without even the implied warranty of
+; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+; GNU Affero General Public License for more details.
+;
+; You should have received a copy of the GNU Affero General Public License
+; along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 #define AppName      "Avid Project Watcher"
 #define AppPublisher "MB+MAB"
 #define AppURL       "https://github.com/markbattistella/avid-project-watcher"
@@ -29,8 +45,8 @@ CloseApplications=force
 
 [Types]
 Name: full;   Description: "Both (recommended for new setups)"
-Name: daemon; Description: "Daemon only — server or background machine"
-Name: admin;  Description: "Admin UI only — connect to an existing daemon"
+Name: daemon; Description: "Daemon only - server or background machine"
+Name: admin;  Description: "Admin UI only - connect to an existing daemon"
 
 [Components]
 Name: daemon; Description: "Watcher Daemon (background service)";   Types: full daemon; Flags: disablenouninstallwarning
@@ -46,9 +62,18 @@ Name: "{group}\Uninstall Avid Project Watcher"; Filename: "{uninstallexe}"
 
 [Run]
 ; Register and start the daemon as a Windows Service
+; Create the service with basic auto start first, then switch to delayed-auto.
+; Delayed auto start fires after the network stack is fully ready, which matters
+; for a service that needs to reach a network share.
 Filename: "{sys}\sc.exe"; Parameters: "create {#ServiceName} binPath=""{app}\Daemon\{#DaemonExe}"" DisplayName=""{#AppName}"" start=auto"; \
   Components: daemon; Flags: runhidden; StatusMsg: "Installing watcher service..."
+Filename: "{sys}\sc.exe"; Parameters: "config {#ServiceName} start=delayed-auto"; \
+  Components: daemon; Flags: runhidden
 Filename: "{sys}\sc.exe"; Parameters: "description {#ServiceName} ""Watches Avid project folders and creates standard folder structures."""; \
+  Components: daemon; Flags: runhidden
+; If the service crashes, restart it after 10 seconds (up to 3 times).
+; Failure count resets after 1 day of clean uptime.
+Filename: "{sys}\sc.exe"; Parameters: "failure {#ServiceName} reset=86400 actions=restart/10000/restart/10000/restart/10000"; \
   Components: daemon; Flags: runhidden
 Filename: "{sys}\sc.exe"; Parameters: "start {#ServiceName}"; \
   Components: daemon; Flags: runhidden; StatusMsg: "Starting watcher service..."
@@ -63,7 +88,7 @@ Filename: "{sys}\sc.exe"; Parameters: "delete {#ServiceName}"; Flags: runhidden;
 
 [Code]
 // Warn if the user picks Admin-only but no daemon URL has been configured.
-// This is just a notice — the Admin UI can still be configured after install.
+// This is just a notice - the Admin UI can still be configured after install.
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if (CurStep = ssPostInstall) and (not IsComponentSelected('daemon')) then
