@@ -47,6 +47,24 @@
         </Grid>
       </Border>
 
+      <!-- ── Update banner ─────────────────────────────────────────────── -->
+      <Button
+          DockPanel.Dock="Top"
+          Classes="link"
+          IsVisible="{Binding HasUpdateAvailable}"
+          Command="{Binding OpenUpdateCommand}"
+          HorizontalAlignment="Stretch"
+          HorizontalContentAlignment="Left"
+          Padding="18,9"
+          Background="#0d2218"
+          BorderBrush="#22c55e"
+          BorderThickness="0,0,0,1">
+        <StackPanel Orientation="Horizontal" Spacing="8">
+          <PathIcon Data="{StaticResource OcticonDownload}" Width="13" Height="13" Foreground="#22c55e" />
+          <TextBlock Text="A new version is available. Click to download." Foreground="#22c55e" FontSize="12" />
+        </StackPanel>
+      </Button>
+
       <!-- ── Body ───────────────────────────────────────────────────────── -->
       <Grid ColumnDefinitions="280,*">
 
