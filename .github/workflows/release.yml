@@ -155,12 +155,6 @@ jobs:
             admin_artifact:  AvidProjectWatcher-Admin-osx-arm64.dmg
             daemon_artifact: AvidProjectWatcher-Daemon-osx-arm64.zip
 
-          - label:   macOS x64
-            runner:  macos-13
-            rid:     osx-x64
-            admin_artifact:  AvidProjectWatcher-Admin-osx-x64.dmg
-            daemon_artifact: AvidProjectWatcher-Daemon-osx-x64.zip
-
     steps:
       - uses: actions/checkout@v4
         with:
