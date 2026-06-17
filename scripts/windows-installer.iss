@@ -186,9 +186,9 @@ begin
     if NetworkDaemonDetected then
     begin
       Result :=
-        'Daemon installation is blocked because an Avid Project Watcher daemon is already reachable on this network:' +
-        #13#10 + #13#10 + NetworkDaemonSummary +
-        #13#10 + #13#10 + 'Install the Admin UI only on this machine.';
+        'Daemon installation is blocked because an Avid Project Watcher daemon is already reachable on this network:' + #13#10 + #13#10 +
+        NetworkDaemonSummary + #13#10 + #13#10 +
+        'Install the Admin UI only on this machine.';
       Exit;
     end;
   end;
