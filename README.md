@@ -36,6 +36,13 @@ Run `AvidProjectWatcher-Setup-win-x64.exe` as an administrator. The installer wi
 - **Daemon only** - installs just the background service, no desktop app. Use this on a dedicated server.
 - **Admin UI only** - installs just the config tool. Use this on a workstation that will connect to a daemon running on another machine.
 
+If you select the daemon component, the installer scans the local subnet for an existing Avid Project Watcher daemon. If it finds one, daemon installation is blocked and the installer switches to **Admin UI only** so the machine does not accidentally create a second watcher for the same facility.
+
+The installer also has an optional **Clean install** checkbox. It is off by default. When enabled, it removes local Avid Project Watcher settings before installing the selected components:
+
+- Admin UI selected: removes this Windows user's Admin UI preferences.
+- Daemon selected: removes the local daemon config, state, and audit database.
+
 The daemon starts automatically after install and will start again on every reboot. You do not need to do anything else to keep it running.
 
 To update, just run the new installer on top of the existing one. It stops the service, replaces the files, and restarts it.
@@ -94,9 +101,15 @@ If you have projects that existed before you set this up, use the Backfill tool 
 
 ## Connecting to a daemon on another machine
 
-If the daemon is running on a server and you want to manage it from a different computer, open the Admin UI on your machine, go to **Settings**, and change the daemon URL to point at the server - for example `http://192.168.1.50:47821`.
+By default, the daemon listens only on `localhost`. To manage it from another computer, first opt the server daemon into LAN access. On Windows, run this once from an elevated Command Prompt on the daemon machine, then restart the **AvidProjectWatcher** service:
 
-Make sure port `47821` is accessible between the two machines.
+```cmd
+setx AVID_PROJECT_WATCHER_API_HOST 0.0.0.0 /M
+```
+
+Then open the Admin UI on your workstation, go to **Settings**, and change the daemon URL to point at the server - for example `http://192.168.1.50:47821`.
+
+Make sure port `47821` is accessible between the two machines. Treat this as an internal admin port: expose it only on trusted networks or restrict it with a firewall rule.
 
 ---
 

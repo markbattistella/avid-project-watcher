@@ -90,8 +90,12 @@ public sealed class ScopeEditorViewModel : ViewModelBase
 
             // UNC network path: \\server\share or //server/share
             if (trimmed.StartsWith(@"\\") || trimmed.StartsWith("//")) return null;
-            // Windows drive letter: C:\... or mapped drive Z:\...
-            if (trimmed.Length >= 2 && char.IsLetter(trimmed[0]) && trimmed[1] == ':') return null;
+            // Windows drive letter or mapped drive. Services usually cannot see user mapped drives.
+            if (trimmed.Length >= 2 && char.IsLetter(trimmed[0]) && trimmed[1] == ':')
+            {
+                return @"Drive-letter paths work only if the Windows service account can access them. For network shares, use a UNC path such as \\server\share.";
+            }
+
             // Unix/macOS absolute path: /Volumes/... or /mnt/...
             if (trimmed.StartsWith('/')) return null;
 

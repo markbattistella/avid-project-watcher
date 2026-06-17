@@ -31,4 +31,7 @@ public sealed record FolderActionResult
     public IReadOnlyList<string> Errors { get; init; } = [];
 
     public FolderActionSource Source { get; init; }
+
+    [JsonIgnore]
+    public bool Succeeded => Errors.Count == 0;
 }

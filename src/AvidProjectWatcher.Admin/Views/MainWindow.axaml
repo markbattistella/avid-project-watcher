@@ -150,7 +150,7 @@
                     <Grid ColumnDefinitions="*,Auto">
                       <TextBox
                           Text="{Binding SelectedScope.RootPath}"
-                          Watermark="Share path, mapped drive, or local folder (or drag one here)"
+                          Watermark="UNC share or local folder (or drag one here)"
                           DragDrop.AllowDrop="True"
                           DragDrop.Drop="RootPath_Drop" />
                       <Button Grid.Column="1" Classes="icon" Click="BrowseRoot_Click" Margin="8,0,0,0" ToolTip.Tip="Browse for folder">
@@ -293,12 +293,12 @@
                 <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
                   <StackPanel>
                     <TextBlock Text="Review &amp; Maintenance" FontSize="15" FontWeight="SemiBold" />
-                    <TextBlock Classes="muted" Text="Catch up existing projects with a backfill, or view the audit log." />
+                    <TextBlock Classes="muted" Text="Scan existing projects with a dry run, commit missing folders, or view the audit log." />
                   </StackPanel>
                   <Button Grid.Column="1" Command="{Binding OpenBackfillPanelCommand}" IsEnabled="{Binding HasSelectedRootPath}">
                     <StackPanel Orientation="Horizontal" Spacing="6">
                       <PathIcon Data="{StaticResource OcticonSync}" />
-                      <TextBlock Text="Backfill" />
+                      <TextBlock Text="Dry Run" />
                     </StackPanel>
                   </Button>
                   <Button Grid.Column="2" Command="{Binding OpenLogsPanelCommand}">
@@ -343,7 +343,7 @@
         <DockPanel>
           <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto" Margin="0,0,0,14">
             <StackPanel>
-              <TextBlock Classes="sectionTitle" Text="Backfill" />
+              <TextBlock Classes="sectionTitle" Text="Dry Run &amp; Backfill" />
               <TextBlock Classes="muted" Text="{Binding BackfillSummary}" />
             </StackPanel>
             <Button Grid.Column="1" Classes="icon" Command="{Binding ClosePanelCommand}">
@@ -355,13 +355,13 @@
             <Button Classes="secondary" Command="{Binding RunBackfillDryRunCommand}">
               <StackPanel Orientation="Horizontal" Spacing="8">
                 <PathIcon Classes="largeIcon" Data="{StaticResource OcticonSync}" />
-                <TextBlock Text="Dry Run Selected" />
+                <TextBlock Text="Scan Selected" />
               </StackPanel>
             </Button>
             <Button Classes="secondary" Command="{Binding RunBackfillAllDryRunCommand}">
               <StackPanel Orientation="Horizontal" Spacing="8">
                 <PathIcon Classes="largeIcon" Data="{StaticResource OcticonSync}" />
-                <TextBlock Text="Dry Run All" />
+                <TextBlock Text="Scan All" />
               </StackPanel>
             </Button>
             <Button Classes="primary" Command="{Binding CommitBackfillCommand}">
@@ -384,7 +384,7 @@
             </DataGrid>
             <TextBlock
                 IsVisible="{Binding HasNoBackfillPlans}"
-                Text="Run a dry run first to see which projects need folders."
+                Text="Run a scan first to see the dry-run result."
                 Classes="muted"
                 HorizontalAlignment="Center"
                 VerticalAlignment="Center"

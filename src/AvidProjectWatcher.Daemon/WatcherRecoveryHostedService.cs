@@ -23,7 +23,7 @@ public sealed class WatcherRecoveryHostedService(
     WatchCoordinator watchCoordinator,
     ILogger<WatcherRecoveryHostedService> logger) : BackgroundService
 {
-    private static readonly TimeSpan RecoveryInterval = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan RecoveryInterval = TimeSpan.FromSeconds(5);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {

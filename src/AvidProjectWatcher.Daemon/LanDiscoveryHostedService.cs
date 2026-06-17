@@ -28,6 +28,7 @@ public sealed class LanDiscoveryHostedService(
     ILogger<LanDiscoveryHostedService> logger) : BackgroundService
 {
     private const int DiscoveryPort = 47822;
+    private const string DiscoveryProbe = "avid-project-watcher-discovery-v1";
     private static readonly TimeSpan BroadcastInterval = TimeSpan.FromSeconds(15);
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -47,7 +48,7 @@ public sealed class LanDiscoveryHostedService(
             return;
         }
 
-        var receiveTask = ReceiveLoopAsync(receiver, stoppingToken);
+        var receiveTask = ReceiveLoopAsync(receiver, sender, stoppingToken);
 
         try
         {
@@ -93,7 +94,7 @@ public sealed class LanDiscoveryHostedService(
         await sender.SendAsync(payload, new IPEndPoint(IPAddress.Broadcast, DiscoveryPort), cancellationToken);
     }
 
-    private async Task ReceiveLoopAsync(UdpClient receiver, CancellationToken cancellationToken)
+    private async Task ReceiveLoopAsync(UdpClient receiver, UdpClient sender, CancellationToken cancellationToken)
     {
         while (!cancellationToken.IsCancellationRequested)
         {
@@ -101,6 +102,12 @@ public sealed class LanDiscoveryHostedService(
             {
                 var result = await receiver.ReceiveAsync(cancellationToken);
                 var json = Encoding.UTF8.GetString(result.Buffer);
+                if (string.Equals(json.Trim(), DiscoveryProbe, StringComparison.Ordinal))
+                {
+                    await BroadcastAsync(sender, cancellationToken);
+                    continue;
+                }
+
                 var advertisement = JsonSerializer.Deserialize<WatcherAdvertisement>(json, JsonOptions);
                 if (advertisement is not null && advertisement.InstanceId != runtimeState.InstanceId)
                 {

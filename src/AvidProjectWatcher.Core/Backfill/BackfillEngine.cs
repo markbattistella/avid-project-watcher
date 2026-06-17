@@ -29,9 +29,12 @@ public sealed class BackfillEngine(ProjectScanner scanner, FolderActionPlanner p
     {
         var scopes = SelectScopes(config, request).ToArray();
         var plans = new List<FolderActionPlan>();
+        var scannedProjectCount = 0;
 
         await foreach (var candidate in scanner.ScanAsync(config, scopes, cancellationToken))
         {
+            scannedProjectCount++;
+
             var scope = scopes.Single(scope => scope.Id == candidate.WatchedLocationId);
             var plan = candidate.IsExcluded
                 ? planner.CreatePlan(scope, candidate.ProjectDirectory, FolderActionSource.ManualBackfill, candidate.ExclusionReason)
@@ -43,7 +46,11 @@ public sealed class BackfillEngine(ProjectScanner scanner, FolderActionPlanner p
             }
         }
 
-        return new BackfillReport { Plans = plans };
+        return new BackfillReport
+        {
+            ScannedProjectCount = scannedProjectCount,
+            Plans = plans
+        };
     }
 
     public async Task<IReadOnlyList<FolderActionResult>> CommitAsync(

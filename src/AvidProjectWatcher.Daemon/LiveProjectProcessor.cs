@@ -31,10 +31,28 @@ public sealed class LiveProjectProcessor(
     ProjectObservationTracker observationTracker,
     IAuditLog auditLog)
 {
+    private readonly SemaphoreSlim processingGate = new(4, 4);
+
     public async Task HandleAvpAsync(
         string avpPath,
         FolderActionSource source,
         CancellationToken cancellationToken = default)
+    {
+        await processingGate.WaitAsync(cancellationToken);
+        try
+        {
+            await HandleAvpCoreAsync(avpPath, source, cancellationToken);
+        }
+        finally
+        {
+            processingGate.Release();
+        }
+    }
+
+    private async Task HandleAvpCoreAsync(
+        string avpPath,
+        FolderActionSource source,
+        CancellationToken cancellationToken)
     {
         var config = await configStore.LoadAsync(cancellationToken);
         var candidate = projectResolver.Resolve(config, avpPath);
@@ -71,7 +89,11 @@ public sealed class LiveProjectProcessor(
 
         var plan = planner.CreatePlan(scope, candidate.ProjectDirectory, source);
         var result = await folderCreator.ApplyAsync(plan, cancellationToken);
-        await observationTracker.MarkObservedAsync(scope.Id, candidate.ProjectDirectory, cancellationToken);
+        if (result.Succeeded)
+        {
+            await observationTracker.MarkObservedAsync(scope.Id, candidate.ProjectDirectory, cancellationToken);
+        }
+
         await auditLog.AppendAsync(AuditEntryFactory.FromFolderResult(result), cancellationToken);
     }
 }

@@ -22,45 +22,57 @@ using AvidProjectWatcher.Core.Models;
 
 namespace AvidProjectWatcher.Admin.ViewModels;
 
-public sealed class ApiClient(string baseUrl)
+public sealed class ApiClient(string baseUrl) : IDisposable
 {
-    private HttpClient httpClient = new() { BaseAddress = new Uri(baseUrl) };
+    private static readonly TimeSpan ShortRequestTimeout = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan WriteRequestTimeout = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan BackfillRequestTimeout = TimeSpan.FromMinutes(30);
+    private HttpClient httpClient = CreateHttpClient(baseUrl);
+    private CancellationTokenSource requestLifetime = new();
 
     public void Reconnect(string newBaseUrl)
     {
+        requestLifetime.Cancel();
+        requestLifetime.Dispose();
         httpClient.Dispose();
-        httpClient = new HttpClient { BaseAddress = new Uri(newBaseUrl) };
+        requestLifetime = new CancellationTokenSource();
+        httpClient = CreateHttpClient(newBaseUrl);
     }
 
     public async Task<WatcherConfig> GetConfigAsync(CancellationToken cancellationToken = default)
     {
-        return await httpClient.GetFromJsonAsync<WatcherConfig>("/api/config", cancellationToken)
+        using var timeout = CreateTimeout(ShortRequestTimeout, cancellationToken);
+        return await httpClient.GetFromJsonAsync<WatcherConfig>("/api/config", timeout.Token)
             ?? WatcherConfig.Empty;
     }
 
     public async Task SaveConfigAsync(WatcherConfig config, CancellationToken cancellationToken = default)
     {
-        using var response = await httpClient.PutAsJsonAsync("/api/config", config, cancellationToken);
+        using var timeout = CreateTimeout(WriteRequestTimeout, cancellationToken);
+        using var response = await httpClient.PutAsJsonAsync("/api/config", config, timeout.Token);
         response.EnsureSuccessStatusCode();
     }
 
     public async Task<DaemonStatusDto> GetStatusAsync(CancellationToken cancellationToken = default)
     {
-        return await httpClient.GetFromJsonAsync<DaemonStatusDto>("/api/status", cancellationToken)
+        using var timeout = CreateTimeout(ShortRequestTimeout, cancellationToken);
+        return await httpClient.GetFromJsonAsync<DaemonStatusDto>("/api/status", timeout.Token)
             ?? new DaemonStatusDto();
     }
 
     public async Task<IReadOnlyList<AuditLogEntry>> GetLogsAsync(CancellationToken cancellationToken = default)
     {
-        return await httpClient.GetFromJsonAsync<IReadOnlyList<AuditLogEntry>>("/api/logs?limit=500", cancellationToken)
+        using var timeout = CreateTimeout(ShortRequestTimeout, cancellationToken);
+        return await httpClient.GetFromJsonAsync<IReadOnlyList<AuditLogEntry>>("/api/logs?limit=500", timeout.Token)
             ?? [];
     }
 
     public async Task<BackfillReport> DryRunBackfillAsync(BackfillRequest request, CancellationToken cancellationToken = default)
     {
-        using var response = await httpClient.PostAsJsonAsync("/api/backfill/dry-run", request, cancellationToken);
+        using var timeout = CreateTimeout(BackfillRequestTimeout, cancellationToken);
+        using var response = await httpClient.PostAsJsonAsync("/api/backfill/dry-run", request, timeout.Token);
         response.EnsureSuccessStatusCode();
-        return await response.Content.ReadFromJsonAsync<BackfillReport>(cancellationToken)
+        return await response.Content.ReadFromJsonAsync<BackfillReport>(timeout.Token)
             ?? new BackfillReport();
     }
 
@@ -68,10 +80,23 @@ public sealed class ApiClient(string baseUrl)
         BackfillReport report,
         CancellationToken cancellationToken = default)
     {
-        using var response = await httpClient.PostAsJsonAsync("/api/backfill/commit", report, cancellationToken);
+        using var timeout = CreateTimeout(BackfillRequestTimeout, cancellationToken);
+        using var response = await httpClient.PostAsJsonAsync("/api/backfill/commit", report, timeout.Token);
         response.EnsureSuccessStatusCode();
-        return await response.Content.ReadFromJsonAsync<IReadOnlyList<FolderActionResult>>(cancellationToken)
+        return await response.Content.ReadFromJsonAsync<IReadOnlyList<FolderActionResult>>(timeout.Token)
             ?? [];
+    }
+
+    public void Dispose()
+    {
+        requestLifetime.Cancel();
+        requestLifetime.Dispose();
+        httpClient.Dispose();
+    }
+
+    public static bool IsConnectionFailure(Exception exception)
+    {
+        return exception is HttpRequestException or TaskCanceledException or OperationCanceledException;
     }
 
     public static string LogsToCsv(IEnumerable<AuditLogEntry> logs)
@@ -100,5 +125,30 @@ public sealed class ApiClient(string baseUrl)
     private static string Escape(string value)
     {
         return "\"" + value.Replace("\"", "\"\"", StringComparison.Ordinal) + "\"";
+    }
+
+    private static HttpClient CreateHttpClient(string baseUrl)
+    {
+        var handler = new SocketsHttpHandler
+        {
+            ConnectTimeout = TimeSpan.FromSeconds(5),
+            PooledConnectionIdleTimeout = TimeSpan.FromSeconds(30),
+            PooledConnectionLifetime = TimeSpan.FromMinutes(5)
+        };
+
+        return new HttpClient(handler, disposeHandler: true)
+        {
+            BaseAddress = new Uri(baseUrl),
+            Timeout = Timeout.InfiniteTimeSpan
+        };
+    }
+
+    private CancellationTokenSource CreateTimeout(TimeSpan timeout, CancellationToken cancellationToken)
+    {
+        var source = CancellationTokenSource.CreateLinkedTokenSource(
+            requestLifetime.Token,
+            cancellationToken);
+        source.CancelAfter(timeout);
+        return source;
     }
 }

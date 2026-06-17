@@ -47,9 +47,34 @@ public sealed class BackfillEngineTests
 
         var report = await engine.DryRunAsync(config, new BackfillRequest());
 
+        Assert.Equal(1, report.ScannedProjectCount);
         Assert.Equal(1, report.AffectedProjectCount);
         Assert.False(Directory.Exists(Path.Combine(projectDirectory, "FOOTAGE")));
         Assert.False(Directory.Exists(Path.Combine(projectDirectory, "SFX")));
+    }
+
+    [Fact]
+    public async Task DryRunAsync_CountsScannedProjectsWhenNoFoldersAreMissing()
+    {
+        using var workspace = TemporaryWorkspace.Create();
+        workspace.CreateDirectory("Projects", "Show", "GFX");
+        workspace.CreateFile(["Projects", "Show", "Show.avp"]);
+
+        var scope = new WatchedLocation
+        {
+            Name = "Projects",
+            RootPath = workspace.GetPath("Projects"),
+            FolderTemplate = [new FolderTemplateEntry("GFX")]
+        };
+
+        var config = new WatcherConfig { WatchedLocations = [scope] };
+        var engine = CreateEngine();
+
+        var report = await engine.DryRunAsync(config, new BackfillRequest());
+
+        Assert.Equal(1, report.ScannedProjectCount);
+        Assert.Equal(0, report.AffectedProjectCount);
+        Assert.Empty(report.Plans);
     }
 
     [Fact]

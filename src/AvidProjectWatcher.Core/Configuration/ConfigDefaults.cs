@@ -18,10 +18,16 @@ namespace AvidProjectWatcher.Core.Configuration;
 
 public static class ConfigDefaults
 {
+    public static string DefaultApiListenHost =>
+        Environment.GetEnvironmentVariable("AVID_PROJECT_WATCHER_API_HOST")
+        ?? "localhost";
+
     public static int DefaultApiPort =>
         int.TryParse(Environment.GetEnvironmentVariable("AVID_PROJECT_WATCHER_API_PORT"), out var port)
             ? port
             : 47821;
+
+    public static string DefaultApiListenUrl => $"http://{DefaultApiListenHost}:{DefaultApiPort}";
 
     public static string AppDataDirectory
     {

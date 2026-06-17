@@ -27,7 +27,7 @@ using AvidProjectWatcher.Core.Templates;
 
 namespace AvidProjectWatcher.Admin.ViewModels;
 
-public sealed class MainWindowViewModel : ViewModelBase
+public sealed class MainWindowViewModel : ViewModelBase, IDisposable
 {
     private readonly PreferencesStore preferencesStore = new();
     private readonly ApiClient apiClient;
@@ -46,6 +46,7 @@ public sealed class MainWindowViewModel : ViewModelBase
     private bool hasUpdateAvailable;
     private string updateUrl = string.Empty;
     private bool updateCheckDone;
+    private bool isDisposed;
 
     public MainWindowViewModel()
     {
@@ -182,7 +183,7 @@ public sealed class MainWindowViewModel : ViewModelBase
 
         try
         {
-            using var http = new HttpClient();
+            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
             http.DefaultRequestHeaders.UserAgent.ParseAdd("AvidProjectWatcher");
 
             var release = await http.GetFromJsonAsync<JsonElement>(
@@ -362,7 +363,7 @@ public sealed class MainWindowViewModel : ViewModelBase
             await RefreshLogsAsync();
             IsDirty = false;
         }
-        catch (HttpRequestException)
+        catch (Exception exception) when (ApiClient.IsConnectionFailure(exception))
         {
             IsDaemonConnected = false;
             DaemonStatusLabel = "Not connected";
@@ -399,7 +400,7 @@ public sealed class MainWindowViewModel : ViewModelBase
             await RefreshStatusAsync();
             return true;
         }
-        catch (HttpRequestException)
+        catch (Exception exception) when (ApiClient.IsConnectionFailure(exception))
         {
             IsDaemonConnected = false;
             DaemonStatusLabel = "Not connected";
@@ -428,7 +429,7 @@ public sealed class MainWindowViewModel : ViewModelBase
                 ? "1 watcher running"
                 : $"{runningCount} watchers running";
         }
-        catch (HttpRequestException)
+        catch (Exception exception) when (ApiClient.IsConnectionFailure(exception))
         {
             IsDaemonConnected = false;
             DaemonStatusLabel = "Not connected";
@@ -585,18 +586,20 @@ public sealed class MainWindowViewModel : ViewModelBase
 
         try
         {
-            lastBackfillReport = await apiClient.DryRunBackfillAsync(new BackfillRequest { ScopeIds = scopeIds });
             BackfillPlans.Clear();
+            BackfillSummary = $"Scanning {label}...";
+            StatusText = BackfillSummary;
+            lastBackfillReport = await apiClient.DryRunBackfillAsync(new BackfillRequest { ScopeIds = scopeIds });
             foreach (var plan in lastBackfillReport.Plans)
             {
                 BackfillPlans.Add(plan);
             }
 
-            BackfillSummary = $"Dry run complete. {lastBackfillReport.AffectedProjectCount} project(s) need folders.";
+            BackfillSummary = $"Dry run complete. Scanned {lastBackfillReport.ScannedProjectCount} project(s); {lastBackfillReport.AffectedProjectCount} need folders.";
             StatusText = BackfillSummary;
             CommitBackfillCommand.RaiseCanExecuteChanged();
         }
-        catch (HttpRequestException)
+        catch (Exception exception) when (ApiClient.IsConnectionFailure(exception))
         {
             IsDaemonConnected = false;
             DaemonStatusLabel = "Not connected";
@@ -621,7 +624,7 @@ public sealed class MainWindowViewModel : ViewModelBase
             CommitBackfillCommand.RaiseCanExecuteChanged();
             await RefreshLogsAsync();
         }
-        catch (HttpRequestException)
+        catch (Exception exception) when (ApiClient.IsConnectionFailure(exception))
         {
             IsDaemonConnected = false;
             DaemonStatusLabel = "Not connected";
@@ -639,7 +642,7 @@ public sealed class MainWindowViewModel : ViewModelBase
                 Logs.Add(log);
             }
         }
-        catch (HttpRequestException)
+        catch (Exception exception) when (ApiClient.IsConnectionFailure(exception))
         {
             IsDaemonConnected = false;
             DaemonStatusLabel = "Not connected";
@@ -719,6 +722,11 @@ public sealed class MainWindowViewModel : ViewModelBase
                 errors.Add($"Watch folder '{scope.Name}' needs a root path.");
             }
 
+            if (scope.FolderTemplate.Count == 0)
+            {
+                errors.Add($"Watch folder '{scope.Name}' needs at least one folder template entry.");
+            }
+
             var templateValidation = FolderTemplateValidator.ValidateFlatTemplate(scope.FolderTemplate);
             errors.AddRange(templateValidation.Errors.Select(error => $"{scope.Name}: {error}"));
         }
@@ -745,5 +753,16 @@ public sealed class MainWindowViewModel : ViewModelBase
             RaisePropertyChanged(nameof(HasSelectedRootPath));
             RaiseCommandStates();
         }
+    }
+
+    public void Dispose()
+    {
+        if (isDisposed)
+        {
+            return;
+        }
+
+        isDisposed = true;
+        apiClient.Dispose();
     }
 }

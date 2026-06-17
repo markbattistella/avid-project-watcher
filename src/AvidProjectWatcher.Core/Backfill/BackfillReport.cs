@@ -22,6 +22,8 @@ public sealed record BackfillReport
 {
     public DateTimeOffset CreatedAtUtc { get; init; } = DateTimeOffset.UtcNow;
 
+    public int ScannedProjectCount { get; init; }
+
     public IReadOnlyList<FolderActionPlan> Plans { get; init; } = [];
 
     [JsonIgnore]

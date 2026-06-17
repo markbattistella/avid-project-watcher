@@ -28,7 +28,7 @@ using Microsoft.AspNetCore.Http.Json;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Host.UseWindowsService();
-builder.WebHost.UseUrls($"http://localhost:{ConfigDefaults.DefaultApiPort}");
+builder.WebHost.UseUrls(ConfigDefaults.DefaultApiListenUrl);
 
 builder.Services.Configure<JsonOptions>(options =>
 {

@@ -48,6 +48,26 @@ public sealed class FolderCreatorTests
 
         Assert.Contains("SFX", result.FoldersCreated);
         Assert.Contains("FOOTAGE", result.FoldersAlreadyPresent);
+        Assert.True(result.Succeeded);
         Assert.True(Directory.Exists(Path.Combine(projectDirectory, "SFX")));
+    }
+
+    [Fact]
+    public async Task ApplyAsync_SkippedPlanReportsFailure()
+    {
+        using var workspace = TemporaryWorkspace.Create();
+        var projectDirectory = workspace.CreateDirectory("Projects", "Episode 01");
+        var creator = new FolderCreator();
+
+        var result = await creator.ApplyAsync(new FolderActionPlan
+        {
+            ScopeName = "Projects",
+            ProjectDirectory = projectDirectory,
+            SkippedReason = "Invalid folder template.",
+            Source = FolderActionSource.Live
+        });
+
+        Assert.False(result.Succeeded);
+        Assert.Contains("Invalid folder template.", result.Errors);
     }
 }

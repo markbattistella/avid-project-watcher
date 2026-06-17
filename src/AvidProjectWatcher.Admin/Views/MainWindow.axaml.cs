@@ -31,6 +31,7 @@ public sealed partial class MainWindow : Window
         InitializeComponent();
         DataContext = new MainWindowViewModel();
         Opened += async (_, _) => await ViewModel.LoadAsync();
+        Closed += (_, _) => ViewModel.Dispose();
     }
 
     private void RootPath_Drop(object? sender, DragEventArgs args)

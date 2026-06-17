@@ -24,6 +24,7 @@ public sealed class ScopeFileWatcher : IDisposable
     private static readonly TimeSpan DebounceDelay = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan StabilityRetryDelay = TimeSpan.FromMilliseconds(500);
     private static readonly TimeSpan StabilityTimeout = TimeSpan.FromSeconds(10);
+    private const int InternalBufferSize = 64 * 1024;
 
     private readonly WatchedLocation scope;
     private readonly Func<string, FolderActionSource, CancellationToken, Task> onAvpDetected;
@@ -79,6 +80,7 @@ public sealed class ScopeFileWatcher : IDisposable
                 {
                     IncludeSubdirectories = true,
                     Filter = "*.avp",
+                    InternalBufferSize = InternalBufferSize,
                     NotifyFilter = NotifyFilters.FileName | NotifyFilters.CreationTime | NotifyFilters.LastWrite
                 };
 
@@ -145,11 +147,14 @@ public sealed class ScopeFileWatcher : IDisposable
     {
         lock (gate)
         {
+            watcher?.Dispose();
+            watcher = null;
+
             status = status with
             {
                 IsRunning = false,
                 IsDisconnected = true,
-                Message = args.GetException().Message
+                Message = $"Watcher error: {args.GetException().Message}. Recovery will retry."
             };
         }
     }
