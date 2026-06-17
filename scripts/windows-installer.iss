@@ -136,7 +136,7 @@ var
   OutputPath: String;
   ScriptPath: String;
   Params: String;
-  ScanOutput: String;
+  ScanOutput: AnsiString;
   ResultCode: Integer;
 begin
   Result := False;
@@ -161,7 +161,7 @@ begin
   if not LoadStringFromFile(OutputPath, ScanOutput) then
     Exit;
 
-  NetworkDaemonSummary := Trim(ScanOutput);
+  NetworkDaemonSummary := Trim(String(ScanOutput));
   Result := NetworkDaemonSummary <> '';
 end;
 
