@@ -31,11 +31,13 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
 {
     private readonly PreferencesStore preferencesStore = new();
     private readonly ApiClient apiClient;
+    private readonly CancellationTokenSource pollingLifetime = new();
     private ScopeEditorViewModel? selectedScope;
     private BackfillReport? lastBackfillReport;
     private string statusText = "Connecting to daemon...";
     private string backfillSummary = "No dry run yet.";
     private bool isDaemonConnected;
+    private bool isDaemonShuttingDown;
     private string daemonStatusLabel = "Connecting...";
     private bool isBackfillPanelOpen;
     private bool isLogsPanelOpen;
@@ -71,6 +73,8 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         OpenSettingsPanelCommand = new RelayCommand(OpenSettingsPanel);
         ClosePanelCommand = new RelayCommand(ClosePanels);
         ConnectCommand = new AsyncRelayCommand(ConnectAsync);
+        StopDaemonCommand = new AsyncRelayCommand(StopDaemonAsync, () => IsDaemonConnected && !IsDaemonShuttingDown);
+        RestartDaemonCommand = new AsyncRelayCommand(RestartDaemonAsync, () => IsDaemonConnected && !IsDaemonShuttingDown);
 
         _ = CheckForUpdateAsync();
 
@@ -263,7 +267,14 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     public bool IsDaemonConnected
     {
         get => isDaemonConnected;
-        private set => SetProperty(ref isDaemonConnected, value);
+        private set
+        {
+            if (SetProperty(ref isDaemonConnected, value))
+            {
+                StopDaemonCommand.RaiseCanExecuteChanged();
+                RestartDaemonCommand.RaiseCanExecuteChanged();
+            }
+        }
     }
 
     public string DaemonStatusLabel
@@ -281,6 +292,23 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     }
 
     public AsyncRelayCommand ConnectCommand { get; }
+
+    public AsyncRelayCommand StopDaemonCommand { get; }
+
+    public AsyncRelayCommand RestartDaemonCommand { get; }
+
+    public bool IsDaemonShuttingDown
+    {
+        get => isDaemonShuttingDown;
+        private set
+        {
+            if (SetProperty(ref isDaemonShuttingDown, value))
+            {
+                StopDaemonCommand.RaiseCanExecuteChanged();
+                RestartDaemonCommand.RaiseCanExecuteChanged();
+            }
+        }
+    }
 
     public string AppVersion { get; } = "v" + (Assembly
         .GetExecutingAssembly()
@@ -419,19 +447,28 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
             var duplicateCount = status.DuplicateWarnings.Count;
 
             IsDaemonConnected = true;
+            IsDaemonShuttingDown = status.IsShuttingDown;
             DaemonStatusLabel = $"{runningCount} running";
 
-            StatusText = duplicateCount > 0
-                ? $"{runningCount} running · {disconnectedCount} disconnected · {duplicateCount} duplicate warning(s)"
-                : disconnectedCount > 0
-                ? $"{runningCount} running · {disconnectedCount} disconnected"
-                : runningCount == 1
-                ? "1 watcher running"
-                : $"{runningCount} watchers running";
+            if (status.IsShuttingDown)
+            {
+                StatusText = "Daemon is shutting down…";
+            }
+            else
+            {
+                StatusText = duplicateCount > 0
+                    ? $"{runningCount} running · {disconnectedCount} disconnected · {duplicateCount} duplicate warning(s)"
+                    : disconnectedCount > 0
+                    ? $"{runningCount} running · {disconnectedCount} disconnected"
+                    : runningCount == 1
+                    ? "1 watcher running"
+                    : $"{runningCount} watchers running";
+            }
         }
         catch (Exception exception) when (ApiClient.IsConnectionFailure(exception))
         {
             IsDaemonConnected = false;
+            IsDaemonShuttingDown = false;
             DaemonStatusLabel = "Not connected";
             StatusText = "Daemon not reachable.";
         }
@@ -755,6 +792,73 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         }
     }
 
+    public void StartPolling()
+    {
+        _ = PollAsync(pollingLifetime.Token);
+    }
+
+    private async Task PollAsync(CancellationToken cancellationToken)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(15));
+        while (await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false))
+        {
+            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(async () =>
+            {
+                if (isDaemonConnected)
+                {
+                    await RefreshStatusAsync();
+                }
+                else
+                {
+                    try
+                    {
+                        if (await apiClient.CheckHealthAsync(cancellationToken))
+                        {
+                            await LoadAsync();
+                        }
+                    }
+                    catch (Exception exception) when (ApiClient.IsConnectionFailure(exception))
+                    {
+                    }
+                }
+            });
+        }
+    }
+
+    private async Task StopDaemonAsync()
+    {
+        try
+        {
+            await apiClient.StopDaemonAsync();
+            StatusText = "Daemon is stopping…";
+            IsDaemonShuttingDown = true;
+        }
+        catch (Exception exception) when (ApiClient.IsConnectionFailure(exception))
+        {
+            IsDaemonConnected = false;
+            IsDaemonShuttingDown = false;
+            DaemonStatusLabel = "Not connected";
+            StatusText = "Could not stop daemon. Not reachable.";
+        }
+    }
+
+    private async Task RestartDaemonAsync()
+    {
+        try
+        {
+            await apiClient.RestartDaemonAsync();
+            StatusText = "Daemon is restarting…";
+            IsDaemonShuttingDown = true;
+        }
+        catch (Exception exception) when (ApiClient.IsConnectionFailure(exception))
+        {
+            IsDaemonConnected = false;
+            IsDaemonShuttingDown = false;
+            DaemonStatusLabel = "Not connected";
+            StatusText = "Could not restart daemon. Not reachable.";
+        }
+    }
+
     public void Dispose()
     {
         if (isDisposed)
@@ -763,6 +867,8 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         }
 
         isDisposed = true;
+        pollingLifetime.Cancel();
+        pollingLifetime.Dispose();
         apiClient.Dispose();
     }
 }

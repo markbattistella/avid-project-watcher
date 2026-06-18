@@ -87,6 +87,27 @@ public sealed class ApiClient(string baseUrl) : IDisposable
             ?? [];
     }
 
+    public async Task<bool> CheckHealthAsync(CancellationToken cancellationToken = default)
+    {
+        using var timeout = CreateTimeout(ShortRequestTimeout, cancellationToken);
+        using var response = await httpClient.GetAsync("/health", timeout.Token);
+        return response.IsSuccessStatusCode;
+    }
+
+    public async Task StopDaemonAsync(CancellationToken cancellationToken = default)
+    {
+        using var timeout = CreateTimeout(WriteRequestTimeout, cancellationToken);
+        using var response = await httpClient.PostAsync("/api/control/stop", null, timeout.Token);
+        response.EnsureSuccessStatusCode();
+    }
+
+    public async Task RestartDaemonAsync(CancellationToken cancellationToken = default)
+    {
+        using var timeout = CreateTimeout(WriteRequestTimeout, cancellationToken);
+        using var response = await httpClient.PostAsync("/api/control/restart", null, timeout.Token);
+        response.EnsureSuccessStatusCode();
+    }
+
     public void Dispose()
     {
         requestLifetime.Cancel();

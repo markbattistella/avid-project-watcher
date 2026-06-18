@@ -1,7 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
   <PropertyGroup>
     <PackageLicenseExpression>AGPL-3.0-or-later</PackageLicenseExpression>
+    <AssemblyName Condition="$([System.String]::Copy('$(RuntimeIdentifier)').StartsWith('win'))">Avid Project Watcher Daemon</AssemblyName>
     <OutputType>Exe</OutputType>
+    <Description>Background watcher service for Avid Project Watcher.</Description>
   </PropertyGroup>
 
   <ItemGroup>

@@ -36,4 +36,6 @@ public sealed record DaemonStatusDto
     public IReadOnlyList<ScopeWatcherStatus> Watchers { get; init; } = [];
 
     public IReadOnlyList<DuplicateWatcherWarning> DuplicateWarnings { get; init; } = [];
+
+    public bool IsShuttingDown { get; init; }
 }

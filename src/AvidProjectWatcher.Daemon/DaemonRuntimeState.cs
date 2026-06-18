@@ -25,6 +25,9 @@ public sealed class DaemonRuntimeState
     private readonly object gate = new();
     private readonly Dictionary<Guid, WatcherAdvertisement> remoteAdvertisements = [];
     private WatcherConfig currentConfig = WatcherConfig.Empty;
+    private DateTimeOffset? lastConfigReloadUtc;
+    private bool isShuttingDown;
+    private bool restartRequested;
 
     public Guid InstanceId { get; private set; } = Guid.NewGuid();
 
@@ -39,7 +42,38 @@ public sealed class DaemonRuntimeState
         }
     }
 
-    public DateTimeOffset? LastConfigReloadUtc { get; private set; }
+    public DateTimeOffset? LastConfigReloadUtc
+    {
+        get
+        {
+            lock (gate)
+            {
+                return lastConfigReloadUtc;
+            }
+        }
+    }
+
+    public bool IsShuttingDown
+    {
+        get
+        {
+            lock (gate)
+            {
+                return isShuttingDown;
+            }
+        }
+    }
+
+    public bool RestartRequested
+    {
+        get
+        {
+            lock (gate)
+            {
+                return restartRequested;
+            }
+        }
+    }
 
     public void SetInstanceId(Guid instanceId)
     {
@@ -54,7 +88,24 @@ public sealed class DaemonRuntimeState
         lock (gate)
         {
             currentConfig = config;
-            LastConfigReloadUtc = DateTimeOffset.UtcNow;
+            lastConfigReloadUtc = DateTimeOffset.UtcNow;
+        }
+    }
+
+    public void RequestStop()
+    {
+        lock (gate)
+        {
+            isShuttingDown = true;
+        }
+    }
+
+    public void RequestRestart()
+    {
+        lock (gate)
+        {
+            isShuttingDown = true;
+            restartRequested = true;
         }
     }
 

@@ -26,5 +26,8 @@ public enum AuditEventType
     BackfillCommitted,
     WatcherError,
     DuplicateWatcherWarning,
-    ConfigReloaded
+    ConfigReloaded,
+    DaemonStarted,
+    DaemonStopped,
+    DaemonRestarting
 }

@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+using AvidProjectWatcher.Core.Audit;
 using AvidProjectWatcher.Core.Watching;
 
 namespace AvidProjectWatcher.Daemon;
@@ -21,9 +22,11 @@ namespace AvidProjectWatcher.Daemon;
 public sealed class WatcherRecoveryHostedService(
     DaemonRuntimeState runtimeState,
     WatchCoordinator watchCoordinator,
+    IAuditLog auditLog,
     ILogger<WatcherRecoveryHostedService> logger) : BackgroundService
 {
     private static readonly TimeSpan RecoveryInterval = TimeSpan.FromSeconds(5);
+    private readonly HashSet<Guid> knownDisconnected = [];
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -31,7 +34,7 @@ public sealed class WatcherRecoveryHostedService(
         {
             try
             {
-                await watchCoordinator.RestartDisconnectedAsync(runtimeState.CurrentConfig, stoppingToken);
+                await RecoverAsync(stoppingToken);
             }
             catch (OperationCanceledException)
             {
@@ -43,5 +46,31 @@ public sealed class WatcherRecoveryHostedService(
 
             await Task.Delay(RecoveryInterval, stoppingToken);
         }
+    }
+
+    private async Task RecoverAsync(CancellationToken cancellationToken)
+    {
+        var statuses = watchCoordinator.Statuses;
+        var nowDisconnected = statuses
+            .Where(s => s.IsDisconnected)
+            .Select(s => s.ScopeId)
+            .ToHashSet();
+
+        foreach (var status in statuses.Where(s => s.IsDisconnected && knownDisconnected.Add(s.ScopeId)))
+        {
+            await auditLog.AppendAsync(new AuditLogEntry
+            {
+                EventType = AuditEventType.WatcherError,
+                ScopeId = status.ScopeId,
+                ScopeName = status.ScopeName,
+                Trigger = "recovery",
+                Message = status.Message,
+                IsError = true
+            }, cancellationToken);
+        }
+
+        knownDisconnected.IntersectWith(nowDisconnected);
+
+        await watchCoordinator.RestartDisconnectedAsync(runtimeState.CurrentConfig, cancellationToken);
     }
 }

@@ -10,7 +10,7 @@ $ErrorActionPreference = "Stop"
 $project = "$PSScriptRoot\..\src\AvidProjectWatcher.Daemon\AvidProjectWatcher.Daemon.csproj"
 dotnet publish $project -c Release -r $Runtime --self-contained false -o $PublishDir
 
-$exe = Join-Path $PublishDir "AvidProjectWatcher.Daemon.exe"
+$exe = Join-Path $PublishDir "Avid Project Watcher Daemon.exe"
 if (-not (Test-Path $exe)) {
     throw "Published daemon executable was not found at $exe"
 }

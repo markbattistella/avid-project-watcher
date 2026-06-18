@@ -17,8 +17,8 @@
 #define AppName      "Avid Project Watcher"
 #define AppPublisher "MB+MAB"
 #define AppURL       "https://github.com/markbattistella/avid-project-watcher"
-#define AdminExe     "AvidProjectWatcher.Admin.exe"
-#define DaemonExe    "AvidProjectWatcher.Daemon.exe"
+#define AdminExe     "Avid Project Watcher Admin.exe"
+#define DaemonExe    "Avid Project Watcher Daemon.exe"
 #define ServiceName  "AvidProjectWatcher"
 
 ; Version and source paths are passed in from the CI:

@@ -3,6 +3,7 @@
     <PackageLicenseExpression>AGPL-3.0-or-later</PackageLicenseExpression>
     <OutputType>WinExe</OutputType>
     <AssemblyName>AvidProjectWatcher.Admin</AssemblyName>
+    <AssemblyName Condition="$([System.String]::Copy('$(RuntimeIdentifier)').StartsWith('win'))">Avid Project Watcher Admin</AssemblyName>
     <ApplicationTitle>Avid Project Watcher</ApplicationTitle>
     <Company>MB+MAB</Company>
     <Copyright>Copyright © $([System.DateTime]::UtcNow.Year) MB+MAB</Copyright>

@@ -186,7 +186,11 @@ public sealed class ScopeFileWatcher : IDisposable
             try
             {
                 await Task.Delay(DebounceDelay, tokenSource.Token);
-                await WaitForFileToSettleAsync(normalizedPath, tokenSource.Token);
+                if (!await WaitForFileToSettleAsync(normalizedPath, tokenSource.Token))
+                {
+                    return;
+                }
+
                 await onAvpDetected(normalizedPath, FolderActionSource.Live, tokenSource.Token);
             }
             catch (OperationCanceledException)
@@ -215,7 +219,7 @@ public sealed class ScopeFileWatcher : IDisposable
         });
     }
 
-    private static async Task WaitForFileToSettleAsync(string filePath, CancellationToken cancellationToken)
+    private static async Task<bool> WaitForFileToSettleAsync(string filePath, CancellationToken cancellationToken)
     {
         var startedAt = DateTimeOffset.UtcNow;
         long? previousLength = null;
@@ -234,12 +238,14 @@ public sealed class ScopeFileWatcher : IDisposable
             var info = new FileInfo(filePath);
             if (previousLength == info.Length && previousWriteTime == info.LastWriteTimeUtc)
             {
-                return;
+                return true;
             }
 
             previousLength = info.Length;
             previousWriteTime = info.LastWriteTimeUtc;
             await Task.Delay(StabilityRetryDelay, cancellationToken);
         }
+
+        return false;
     }
 }

@@ -43,7 +43,19 @@ public sealed class JsonStateStore(string statePath) : IStateStore
             Directory.CreateDirectory(directory);
         }
 
-        await using var stream = File.Create(statePath);
-        await JsonSerializer.SerializeAsync(stream, state, SerializerOptions, cancellationToken);
+        var tempPath = $"{statePath}.{Guid.NewGuid():N}.tmp";
+        await using (var stream = File.Create(tempPath))
+        {
+            await JsonSerializer.SerializeAsync(stream, state, SerializerOptions, cancellationToken);
+        }
+
+        if (File.Exists(statePath))
+        {
+            File.Replace(tempPath, statePath, null);
+        }
+        else
+        {
+            File.Move(tempPath, statePath);
+        }
     }
 }

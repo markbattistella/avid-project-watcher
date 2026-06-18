@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+using System.Diagnostics;
 using AvidProjectWatcher.Core.Audit;
 using AvidProjectWatcher.Core.Backfill;
 using AvidProjectWatcher.Core.Configuration;
@@ -82,7 +83,8 @@ app.MapGet("/api/status", (
         AuditDatabasePath = ConfigDefaults.DefaultAuditDatabasePath,
         LastConfigReloadUtc = runtime.LastConfigReloadUtc,
         Watchers = coordinator.Statuses,
-        DuplicateWarnings = warnings
+        DuplicateWarnings = warnings,
+        IsShuttingDown = runtime.IsShuttingDown
     });
 });
 
@@ -183,4 +185,46 @@ app.MapPost("/api/backfill/commit", async (
     return Results.Ok(results);
 });
 
+app.MapGet("/health", () => Results.Ok());
+
+app.MapPost("/api/control/stop", async (
+    DaemonRuntimeState runtime,
+    IAuditLog auditLog,
+    IHostApplicationLifetime lifetime,
+    CancellationToken cancellationToken) =>
+{
+    runtime.RequestStop();
+    await auditLog.AppendAsync(new AuditLogEntry
+    {
+        EventType = AuditEventType.DaemonStopped,
+        Trigger = "api",
+        Message = "Daemon stop requested via API."
+    }, cancellationToken);
+    lifetime.StopApplication();
+    return Results.Ok();
+});
+
+app.MapPost("/api/control/restart", async (
+    DaemonRuntimeState runtime,
+    IAuditLog auditLog,
+    IHostApplicationLifetime lifetime,
+    CancellationToken cancellationToken) =>
+{
+    runtime.RequestRestart();
+    await auditLog.AppendAsync(new AuditLogEntry
+    {
+        EventType = AuditEventType.DaemonRestarting,
+        Trigger = "api",
+        Message = "Daemon restart requested via API."
+    }, cancellationToken);
+    lifetime.StopApplication();
+    return Results.Ok();
+});
+
 app.Run();
+
+var runtimeState = app.Services.GetRequiredService<DaemonRuntimeState>();
+if (runtimeState.RestartRequested && !string.IsNullOrEmpty(Environment.ProcessPath))
+{
+    Process.Start(new ProcessStartInfo(Environment.ProcessPath) { UseShellExecute = false });
+}

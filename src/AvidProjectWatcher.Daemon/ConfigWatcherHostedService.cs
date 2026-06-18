@@ -25,10 +25,20 @@ public sealed class ConfigWatcherHostedService(
     IAuditLog auditLog,
     ILogger<ConfigWatcherHostedService> logger) : BackgroundService
 {
+    private readonly object reloadGate = new();
+    private CancellationTokenSource? pendingReloadCts;
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         await auditLog.InitializeAsync(stoppingToken);
         await reloader.ReloadAsync(stoppingToken);
+
+        await auditLog.AppendAsync(new AuditLogEntry
+        {
+            EventType = AuditEventType.DaemonStarted,
+            Trigger = "startup",
+            Message = "Daemon started."
+        }, stoppingToken);
 
         var configDirectory = Path.GetDirectoryName(configStore.ConfigPath);
         var configFileName = Path.GetFileName(configStore.ConfigPath);
@@ -43,33 +53,53 @@ public sealed class ConfigWatcherHostedService(
             NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName | NotifyFilters.CreationTime
         };
 
-        watcher.Changed += (_, _) => QueueReload();
-        watcher.Created += (_, _) => QueueReload();
-        watcher.Renamed += (_, _) => QueueReload();
+        watcher.Changed += (_, _) => QueueReload(stoppingToken);
+        watcher.Created += (_, _) => QueueReload(stoppingToken);
+        watcher.Renamed += (_, _) => QueueReload(stoppingToken);
         watcher.EnableRaisingEvents = true;
 
         while (!stoppingToken.IsCancellationRequested)
         {
             await Task.Delay(TimeSpan.FromSeconds(1), stoppingToken);
         }
+    }
 
-        void QueueReload()
+    private void QueueReload(CancellationToken stoppingToken)
+    {
+        CancellationTokenSource cts;
+        lock (reloadGate)
         {
-            _ = Task.Run(async () =>
-            {
-                try
-                {
-                    await Task.Delay(TimeSpan.FromMilliseconds(500), stoppingToken);
-                    await reloader.ReloadAsync(stoppingToken);
-                }
-                catch (OperationCanceledException)
-                {
-                }
-                catch (Exception exception)
-                {
-                    logger.LogError(exception, "Failed to reload watcher config.");
-                }
-            }, stoppingToken);
+            pendingReloadCts?.Cancel();
+            pendingReloadCts?.Dispose();
+            pendingReloadCts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+            cts = pendingReloadCts;
         }
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(500), cts.Token);
+                await reloader.ReloadAsync(cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch (Exception exception)
+            {
+                logger.LogError(exception, "Failed to reload watcher config.");
+            }
+            finally
+            {
+                lock (reloadGate)
+                {
+                    if (ReferenceEquals(pendingReloadCts, cts))
+                    {
+                        cts.Dispose();
+                        pendingReloadCts = null;
+                    }
+                }
+            }
+        });
     }
 }

@@ -18,6 +18,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
+using AvidProjectWatcher.Core.Audit;
 using AvidProjectWatcher.Core.Discovery;
 using AvidProjectWatcher.Core.Models;
 
@@ -25,6 +26,8 @@ namespace AvidProjectWatcher.Daemon;
 
 public sealed class LanDiscoveryHostedService(
     DaemonRuntimeState runtimeState,
+    DuplicateWatcherDetector duplicateDetector,
+    IAuditLog auditLog,
     ILogger<LanDiscoveryHostedService> logger) : BackgroundService
 {
     private const int DiscoveryPort = 47822;
@@ -96,6 +99,8 @@ public sealed class LanDiscoveryHostedService(
 
     private async Task ReceiveLoopAsync(UdpClient receiver, UdpClient sender, CancellationToken cancellationToken)
     {
+        var warnedPairs = new HashSet<(Guid, Guid)>();
+
         while (!cancellationToken.IsCancellationRequested)
         {
             try
@@ -109,9 +114,39 @@ public sealed class LanDiscoveryHostedService(
                 }
 
                 var advertisement = JsonSerializer.Deserialize<WatcherAdvertisement>(json, JsonOptions);
-                if (advertisement is not null && advertisement.InstanceId != runtimeState.InstanceId)
+                if (advertisement is null || advertisement.InstanceId == runtimeState.InstanceId)
                 {
-                    runtimeState.RecordRemoteAdvertisement(advertisement);
+                    continue;
+                }
+
+                runtimeState.RecordRemoteAdvertisement(advertisement);
+
+                var warnings = duplicateDetector.FindWarnings(
+                    runtimeState.InstanceId,
+                    runtimeState.CurrentConfig.WatchedLocations,
+                    [advertisement]);
+
+                foreach (var warning in warnings)
+                {
+                    var pair = (runtimeState.InstanceId, advertisement.InstanceId);
+                    if (!warnedPairs.Add(pair))
+                    {
+                        continue;
+                    }
+
+                    var message = $"Duplicate watcher detected on {warning.RemoteMachineName}: " +
+                        $"remote scope '{warning.RemoteScopeName}' ({warning.RemoteRootPath}) " +
+                        $"overlaps with local scope '{warning.LocalScopeName}' ({warning.LocalRootPath}).";
+
+                    logger.LogCritical("Anti-farm conflict: {Message}", message);
+
+                    await auditLog.AppendAsync(new AuditLogEntry
+                    {
+                        EventType = AuditEventType.DuplicateWatcherWarning,
+                        Trigger = "lan-discovery",
+                        Message = message,
+                        IsError = true
+                    }, cancellationToken);
                 }
             }
             catch (OperationCanceledException)
