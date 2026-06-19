@@ -97,6 +97,7 @@ Filename: "{sys}\sc.exe"; Parameters: "delete {#ServiceName}"; Flags: runhidden;
 
 [Code]
 var
+  NetworkScanProgressPage: TOutputProgressWizardPage;
   NetworkScanDone: Boolean;
   NetworkDaemonDetected: Boolean;
   NetworkDaemonSummary: String;
@@ -131,38 +132,105 @@ begin
     Result := ResultCode = 0;
 end;
 
+function IsLocalDaemonInstallPresent(): Boolean;
+begin
+  Result :=
+    ServiceExists() or
+    FileExists(ExpandConstant('{app}\Daemon\{#DaemonExe}'));
+end;
+
+function ShouldRunNetworkDaemonGate(): Boolean;
+begin
+  Result :=
+    IsComponentSelected('daemon') and
+    (not DaemonInstallOverride) and
+    (not IsLocalDaemonInstallPresent());
+end;
+
+procedure ShowNetworkScanProgress();
+begin
+  if WizardSilent or (NetworkScanProgressPage = nil) then
+    Exit;
+
+  NetworkScanProgressPage.SetText(
+    'Scanning the local network for existing watcher daemons...',
+    'This can take a few seconds.');
+  NetworkScanProgressPage.SetProgress(1, 3);
+  NetworkScanProgressPage.Show;
+  WizardForm.Update;
+end;
+
+procedure HideNetworkScanProgress();
+begin
+  if WizardSilent or (NetworkScanProgressPage = nil) then
+    Exit;
+
+  NetworkScanProgressPage.SetProgress(3, 3);
+  NetworkScanProgressPage.Hide;
+end;
+
 function RunNetworkDaemonScan(): Boolean;
 var
   OutputPath: String;
   ScriptPath: String;
   Params: String;
-  ScanOutput: AnsiString;
+  ScanLines: TArrayOfString;
   ResultCode: Integer;
+  I: Integer;
+  Line: String;
 begin
   Result := False;
   NetworkDaemonSummary := '';
 
-  ExtractTemporaryFile('detect-network-daemons.ps1');
+  ShowNetworkScanProgress();
 
-  ScriptPath := ExpandConstant('{tmp}\detect-network-daemons.ps1');
-  OutputPath := ExpandConstant('{tmp}\avid-project-watcher-daemon-scan.txt');
-  DeleteFile(OutputPath);
+  try
+    ExtractTemporaryFile('detect-network-daemons.ps1');
 
-  Params :=
-    '-NoProfile -ExecutionPolicy Bypass -File "' + ScriptPath + '"' +
-    ' -OutputPath "' + OutputPath + '"';
+    ScriptPath := ExpandConstant('{tmp}\detect-network-daemons.ps1');
+    OutputPath := ExpandConstant('{tmp}\avid-project-watcher-daemon-scan.txt');
+    DeleteFile(OutputPath);
 
-  if not Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'), Params, '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
-    Exit;
+    Params :=
+      '-NoProfile -ExecutionPolicy Bypass -File "' + ScriptPath + '"' +
+      ' -OutputPath "' + OutputPath + '"';
 
-  if not FileExists(OutputPath) then
-    Exit;
+    if not Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'), Params, '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
+      Exit;
 
-  if not LoadStringFromFile(OutputPath, ScanOutput) then
-    Exit;
+    if not FileExists(OutputPath) then
+      Exit;
 
-  NetworkDaemonSummary := Trim(String(ScanOutput));
-  Result := NetworkDaemonSummary <> '';
+    if not LoadStringsFromFile(OutputPath, ScanLines) then
+      Exit;
+
+    for I := 0 to GetArrayLength(ScanLines) - 1 do
+    begin
+      Line := Trim(ScanLines[I]);
+      if (Line <> '') or (NetworkDaemonSummary <> '') then
+      begin
+        if NetworkDaemonSummary <> '' then
+          NetworkDaemonSummary := NetworkDaemonSummary + #13#10;
+
+        NetworkDaemonSummary := NetworkDaemonSummary + Line;
+      end;
+    end;
+
+    Result := NetworkDaemonSummary <> '';
+  finally
+    HideNetworkScanProgress();
+  end;
+end;
+
+function EnsureNetworkDaemonScan(): Boolean;
+begin
+  if not NetworkScanDone then
+  begin
+    NetworkScanDone := True;
+    NetworkDaemonDetected := RunNetworkDaemonScan();
+  end;
+
+  Result := NetworkDaemonDetected;
 end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
@@ -175,20 +243,14 @@ begin
   if not IsComponentSelected('daemon') then
     Exit;
 
-  if not DaemonInstallOverride then
+  if ShouldRunNetworkDaemonGate() then
   begin
-    if not NetworkScanDone then
-    begin
-      NetworkScanDone := True;
-      NetworkDaemonDetected := RunNetworkDaemonScan();
-    end;
-
-    if NetworkDaemonDetected then
+    if EnsureNetworkDaemonScan() then
     begin
       Result :=
-        'Daemon installation is blocked because an Avid Project Watcher daemon is already reachable on this network:' + #13#10 + #13#10 +
+        'Daemon installation is blocked because this looks like a new daemon install, and an Avid Project Watcher daemon is already reachable on this network:' + #13#10 + #13#10 +
         NetworkDaemonSummary + #13#10 + #13#10 +
-        'Install the Admin UI only on this machine.';
+        'Install the Admin UI only on this machine, or run this installer on the existing daemon machine to update it.';
       Exit;
     end;
   end;
@@ -226,6 +288,11 @@ end;
 
 procedure InitializeWizard;
 begin
+  if not WizardSilent then
+    NetworkScanProgressPage := CreateOutputProgressPage(
+      'Checking for existing daemon',
+      'Looking for other Avid Project Watcher daemons before installing the service.');
+
   WizardForm.KeyPreview := True;
   WizardForm.OnKeyDown := @WizardFormKeyDown;
 end;
@@ -237,19 +304,10 @@ begin
   if CurPageID <> wpSelectComponents then
     Exit;
 
-  if not IsComponentSelected('daemon') then
+  if not ShouldRunNetworkDaemonGate() then
     Exit;
 
-  if DaemonInstallOverride then
-    Exit;
-
-  if not NetworkScanDone then
-  begin
-    NetworkScanDone := True;
-    NetworkDaemonDetected := RunNetworkDaemonScan();
-  end;
-
-  if not NetworkDaemonDetected then
+  if not EnsureNetworkDaemonScan() then
     Exit;
 
   WizardSelectComponents('admin');
@@ -257,7 +315,7 @@ begin
     'An Avid Project Watcher daemon is already reachable on this network:' + #13#10 + #13#10 +
     NetworkDaemonSummary + #13#10 + #13#10 +
     'Daemon installation is blocked to prevent accidental multiple watchers on the same project network.' + #13#10 + #13#10 +
-    'This installer has switched to Admin UI only.',
+    'This installer has switched to Admin UI only. To update the existing daemon, run this installer on the machine listed above.',
     mbCriticalError, MB_OK);
 
   Result := False;

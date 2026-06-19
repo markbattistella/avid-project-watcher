@@ -186,6 +186,21 @@ function Find-DaemonsByHttp {
     }
 }
 
+function Format-DaemonSummary {
+    param([object]$Daemon)
+
+    $machineName = [string]$Daemon.MachineName
+    if ([string]::IsNullOrWhiteSpace($machineName)) {
+        $machineName = "(unknown machine)"
+    }
+
+    @(
+        "Machine: $machineName"
+        "Address: http://$($Daemon.Address):$Port"
+        "Instance: $($Daemon.InstanceId)"
+    )
+}
+
 $localAddresses = Get-LocalIPv4Addresses
 $candidates = @(Get-CandidateAddresses -LocalAddresses $localAddresses)
 $udpDaemons = @(Find-DaemonsByUdp -LocalAddresses $localAddresses)
@@ -199,8 +214,13 @@ $daemons = foreach ($daemon in @($udpDaemons + $httpDaemons)) {
     }
 }
 
-$lines = foreach ($daemon in $daemons) {
-    "$($daemon.MachineName) at $($daemon.Address) ($($daemon.InstanceId))"
+$lines = @()
+foreach ($daemon in $daemons) {
+    if ($lines.Count -gt 0) {
+        $lines += ""
+    }
+
+    $lines += Format-DaemonSummary -Daemon $daemon
 }
 
 $lines = @($lines)

@@ -36,7 +36,7 @@ Run `AvidProjectWatcher-Setup-win-x64.exe` as an administrator. The installer wi
 - **Daemon only** - installs just the background service, no desktop app. Use this on a dedicated server.
 - **Admin UI only** - installs just the config tool. Use this on a workstation that will connect to a daemon running on another machine.
 
-If you select the daemon component, the installer scans the local subnet for an existing Avid Project Watcher daemon. If it finds one, daemon installation is blocked and the installer switches to **Admin UI only** so the machine does not accidentally create a second watcher for the same facility.
+If you select the daemon component on a machine that does not already have the daemon installed, the installer scans the local subnet for an existing Avid Project Watcher daemon. If it finds one, daemon installation is blocked and the installer switches to **Admin UI only** so the machine does not accidentally create a second watcher for the same facility. Existing local daemon installs can still be updated by running the new installer on the daemon machine.
 
 The installer also has an optional **Clean install** checkbox. It is off by default. When enabled, it removes local Avid Project Watcher settings before installing the selected components:
 
