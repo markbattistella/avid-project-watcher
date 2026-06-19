@@ -77,19 +77,15 @@ public sealed class ProjectScanner(ProjectResolver projectResolver)
                 continue;
             }
 
-            IEnumerable<string> files;
-            try
-            {
-                files = Directory.EnumerateFiles(directory, "*.avp", SearchOption.TopDirectoryOnly).ToArray();
-            }
-            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            if (!ProjectAvpLocator.TryFindFirstAvpFileInDirectory(directory, out var firstAvpPath))
             {
                 continue;
             }
 
-            foreach (var file in files)
+            if (firstAvpPath is not null)
             {
-                yield return file;
+                yield return firstAvpPath;
+                continue;
             }
 
             IEnumerable<string> children;

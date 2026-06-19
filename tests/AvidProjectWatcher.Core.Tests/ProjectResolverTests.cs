@@ -38,6 +38,38 @@ public sealed class ProjectResolverTests
     }
 
     [Fact]
+    public void Resolve_UsesParentProjectForNestedAvidSharedDataAvp()
+    {
+        using var workspace = TemporaryWorkspace.Create();
+        var projectDirectory = workspace.CreateDirectory("Projects", "12345678 SMITH");
+        var projectAvpPath = workspace.CreateFile(["Projects", "12345678 SMITH", "12345678 SMITH.avp"]);
+        var nestedAvpPath = workspace.CreateFile(
+            ["Projects", "12345678 SMITH", "AvidSharedData", "COMPUTER-01", "12345678 SMITH.avp"]);
+        var config = CreateConfig(workspace.GetPath("Projects"));
+
+        var candidate = Assert.IsType<ProjectCandidate>(resolver.Resolve(config, nestedAvpPath));
+
+        Assert.Equal(projectDirectory, candidate.ProjectDirectory);
+        Assert.Equal(projectAvpPath, candidate.AvpPath);
+    }
+
+    [Fact]
+    public void Resolve_UsesParentProjectForNestedLegacyComputerAvp()
+    {
+        using var workspace = TemporaryWorkspace.Create();
+        var projectDirectory = workspace.CreateDirectory("Projects", "12345678 SMITH");
+        var projectAvpPath = workspace.CreateFile(["Projects", "12345678 SMITH", "12345678 SMITH.avp"]);
+        var nestedAvpPath = workspace.CreateFile(
+            ["Projects", "12345678 SMITH", "COMPUTER-01", "12345678 SMITH.avp"]);
+        var config = CreateConfig(workspace.GetPath("Projects"));
+
+        var candidate = Assert.IsType<ProjectCandidate>(resolver.Resolve(config, nestedAvpPath));
+
+        Assert.Equal(projectDirectory, candidate.ProjectDirectory);
+        Assert.Equal(projectAvpPath, candidate.AvpPath);
+    }
+
+    [Fact]
     public void Resolve_AppliesPathBasedExclusions()
     {
         using var workspace = TemporaryWorkspace.Create();

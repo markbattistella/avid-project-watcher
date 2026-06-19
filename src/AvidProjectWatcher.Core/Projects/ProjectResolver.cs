@@ -29,7 +29,13 @@ public sealed class ProjectResolver(ScopeResolver scopeResolver, ExclusionMatche
         }
 
         var normalizedAvpPath = PathUtility.NormalizeFullPath(avpPath);
-        var projectDirectory = Path.GetDirectoryName(normalizedAvpPath);
+        var projectAvpPath = ResolveProjectAvpPath(config, normalizedAvpPath);
+        if (projectAvpPath is null)
+        {
+            return null;
+        }
+
+        var projectDirectory = Path.GetDirectoryName(projectAvpPath);
         if (string.IsNullOrWhiteSpace(projectDirectory))
         {
             return null;
@@ -44,11 +50,42 @@ public sealed class ProjectResolver(ScopeResolver scopeResolver, ExclusionMatche
 
         var exclusion = exclusionMatcher.Match(owningScope, projectDirectory);
         return new ProjectCandidate(
-            normalizedAvpPath,
+            projectAvpPath,
             projectDirectory,
             PathUtility.GetRelativePath(owningScope.RootPath, projectDirectory),
             owningScope.Id,
             exclusion.IsExcluded,
             exclusion.Reason);
+    }
+
+    private static string? ResolveProjectAvpPath(WatcherConfig config, string normalizedAvpPath)
+    {
+        var avpDirectory = Path.GetDirectoryName(normalizedAvpPath);
+        if (string.IsNullOrWhiteSpace(avpDirectory))
+        {
+            return null;
+        }
+
+        var containingScopes = config.WatchedLocations
+            .Where(scope => scope.Enabled)
+            .Where(scope => PathUtility.IsPathUnder(avpDirectory, scope.RootPath))
+            .OrderBy(scope => PathUtility.NormalizeFullPath(scope.RootPath).Length)
+            .ToArray();
+
+        if (containingScopes.Length == 0)
+        {
+            return null;
+        }
+
+        foreach (var scope in containingScopes)
+        {
+            var projectAvpPath = ProjectAvpLocator.FindFirstProjectAvpOnPath(scope.RootPath, normalizedAvpPath);
+            if (projectAvpPath is not null)
+            {
+                return PathUtility.NormalizeFullPath(projectAvpPath);
+            }
+        }
+
+        return normalizedAvpPath;
     }
 }

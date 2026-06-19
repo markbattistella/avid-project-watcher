@@ -78,6 +78,57 @@ public sealed class BackfillEngineTests
     }
 
     [Fact]
+    public async Task DryRunAsync_StopsAtProjectRootBeforeAvidSharedDataMirrors()
+    {
+        using var workspace = TemporaryWorkspace.Create();
+        var projectDirectory = workspace.CreateDirectory("Projects", "12345678 SMITH");
+        workspace.CreateFile(["Projects", "12345678 SMITH", "12345678 SMITH.avp"]);
+        workspace.CreateFile(
+            ["Projects", "12345678 SMITH", "AvidSharedData", "COMPUTER-01", "12345678 SMITH.avp"]);
+
+        var scope = new WatchedLocation
+        {
+            Name = "Projects",
+            RootPath = workspace.GetPath("Projects"),
+            FolderTemplate = [new FolderTemplateEntry("BWC")]
+        };
+
+        var config = new WatcherConfig { WatchedLocations = [scope] };
+        var engine = CreateEngine();
+
+        var report = await engine.DryRunAsync(config, new BackfillRequest());
+
+        Assert.Equal(1, report.ScannedProjectCount);
+        Assert.Equal(1, report.AffectedProjectCount);
+        Assert.Equal(projectDirectory, report.Plans.Single().ProjectDirectory);
+    }
+
+    [Fact]
+    public async Task DryRunAsync_StopsAtProjectRootBeforeLegacyComputerMirrors()
+    {
+        using var workspace = TemporaryWorkspace.Create();
+        var projectDirectory = workspace.CreateDirectory("Projects", "12345678 SMITH");
+        workspace.CreateFile(["Projects", "12345678 SMITH", "12345678 SMITH.avp"]);
+        workspace.CreateFile(["Projects", "12345678 SMITH", "COMPUTER-01", "12345678 SMITH.avp"]);
+
+        var scope = new WatchedLocation
+        {
+            Name = "Projects",
+            RootPath = workspace.GetPath("Projects"),
+            FolderTemplate = [new FolderTemplateEntry("BWC")]
+        };
+
+        var config = new WatcherConfig { WatchedLocations = [scope] };
+        var engine = CreateEngine();
+
+        var report = await engine.DryRunAsync(config, new BackfillRequest());
+
+        Assert.Equal(1, report.ScannedProjectCount);
+        Assert.Equal(1, report.AffectedProjectCount);
+        Assert.Equal(projectDirectory, report.Plans.Single().ProjectDirectory);
+    }
+
+    [Fact]
     public async Task CommitAsync_AppliesDryRunPlan()
     {
         using var workspace = TemporaryWorkspace.Create();
