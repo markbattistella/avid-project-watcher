@@ -59,6 +59,7 @@ Name: cleaninstall; Description: "Clean install - remove local settings, state, 
 Source: "{#AdminDir}\*";  DestDir: "{app}\Admin";  Components: admin;  Flags: recursesubdirs ignoreversion
 Source: "{#DaemonDir}\*"; DestDir: "{app}\Daemon"; Components: daemon; Flags: recursesubdirs ignoreversion
 Source: "detect-network-daemons.ps1"; Flags: dontcopy
+Source: "stop-local-daemon.ps1"; Flags: dontcopy
 
 [Icons]
 Name: "{group}\Avid Project Watcher Admin"; Filename: "{app}\Admin\{#AdminExe}"; Components: admin
@@ -97,7 +98,7 @@ Filename: "{sys}\sc.exe"; Parameters: "delete {#ServiceName}"; Flags: runhidden;
 
 [Code]
 var
-  NetworkScanProgressPage: TOutputProgressWizardPage;
+  InstallerProgressPage: TOutputProgressWizardPage;
   NetworkScanDone: Boolean;
   NetworkDaemonDetected: Boolean;
   NetworkDaemonSummary: String;
@@ -121,6 +122,11 @@ end;
 function ScExePath(): String;
 begin
   Result := ExpandConstant('{sys}\sc.exe');
+end;
+
+function PowerShellExePath(): String;
+begin
+  Result := ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe');
 end;
 
 function ServiceExists(): Boolean;
@@ -149,24 +155,63 @@ end;
 
 procedure ShowNetworkScanProgress();
 begin
-  if WizardSilent or (NetworkScanProgressPage = nil) then
+  if WizardSilent or (InstallerProgressPage = nil) then
     Exit;
 
-  NetworkScanProgressPage.SetText(
+  InstallerProgressPage.SetText(
     'Scanning the local network for existing watcher daemons...',
     'This can take a few seconds.');
-  NetworkScanProgressPage.SetProgress(1, 3);
-  NetworkScanProgressPage.Show;
+  InstallerProgressPage.SetProgress(1, 3);
+  InstallerProgressPage.Show;
   WizardForm.Update;
 end;
 
-procedure HideNetworkScanProgress();
+procedure ShowLocalDaemonStopProgress();
 begin
-  if WizardSilent or (NetworkScanProgressPage = nil) then
+  if WizardSilent or (InstallerProgressPage = nil) then
     Exit;
 
-  NetworkScanProgressPage.SetProgress(3, 3);
-  NetworkScanProgressPage.Hide;
+  InstallerProgressPage.SetText(
+    'Stopping the existing local watcher daemon...',
+    'The installer is waiting for Windows to release the old daemon files.');
+  InstallerProgressPage.SetProgress(1, 3);
+  InstallerProgressPage.Show;
+  WizardForm.Update;
+end;
+
+procedure HideInstallerProgress();
+begin
+  if WizardSilent or (InstallerProgressPage = nil) then
+    Exit;
+
+  InstallerProgressPage.SetProgress(3, 3);
+  InstallerProgressPage.Hide;
+end;
+
+function StopLocalDaemonForReplacement(): Boolean;
+var
+  ScriptPath: String;
+  Params: String;
+  ResultCode: Integer;
+begin
+  Result := False;
+  ShowLocalDaemonStopProgress();
+
+  try
+    ExtractTemporaryFile('stop-local-daemon.ps1');
+
+    ScriptPath := ExpandConstant('{tmp}\stop-local-daemon.ps1');
+    Params :=
+      '-NoProfile -ExecutionPolicy Bypass -File "' + ScriptPath + '"' +
+      ' -ServiceName "{#ServiceName}"' +
+      ' -DaemonExePath "' + ExpandConstant('{app}\Daemon\{#DaemonExe}') + '"' +
+      ' -DaemonDirectory "' + ExpandConstant('{app}\Daemon') + '"';
+
+    if Exec(PowerShellExePath(), Params, '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
+      Result := ResultCode = 0;
+  finally
+    HideInstallerProgress();
+  end;
 end;
 
 function RunNetworkDaemonScan(): Boolean;
@@ -195,7 +240,7 @@ begin
       '-NoProfile -ExecutionPolicy Bypass -File "' + ScriptPath + '"' +
       ' -OutputPath "' + OutputPath + '"';
 
-    if not Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'), Params, '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
+    if not Exec(PowerShellExePath(), Params, '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
       Exit;
 
     if not FileExists(OutputPath) then
@@ -218,7 +263,7 @@ begin
 
     Result := NetworkDaemonSummary <> '';
   finally
-    HideNetworkScanProgress();
+    HideInstallerProgress();
   end;
 end;
 
@@ -234,9 +279,6 @@ begin
 end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
-var
-  ResultCode: Integer;
-  Attempt: Integer;
 begin
   Result := '';
 
@@ -255,22 +297,15 @@ begin
     end;
   end;
 
-  if not ServiceExists() then
+  if not IsLocalDaemonInstallPresent() then
     Exit;
 
-  Exec(ScExePath(), 'stop {#ServiceName}', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-  Sleep(2000);
-  Exec(ScExePath(), 'delete {#ServiceName}', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  if StopLocalDaemonForReplacement() then
+    Exit;
 
-  for Attempt := 1 to 15 do
-  begin
-    if not ServiceExists() then
-      Exit;
-
-    Sleep(1000);
-  end;
-
-  Result := 'The existing Avid Project Watcher service is still stopping. Wait a few seconds, then run the installer again.';
+  Result :=
+    'The existing local Avid Project Watcher daemon could not be stopped.' + #13#10 + #13#10 +
+    'Close any running daemon process, or stop the AvidProjectWatcher service from Windows Services, then run this installer again.';
 end;
 
 procedure WizardFormKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
@@ -289,7 +324,7 @@ end;
 procedure InitializeWizard;
 begin
   if not WizardSilent then
-    NetworkScanProgressPage := CreateOutputProgressPage(
+    InstallerProgressPage := CreateOutputProgressPage(
       'Checking for existing daemon',
       'Looking for other Avid Project Watcher daemons before installing the service.');
 
