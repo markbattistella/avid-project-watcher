@@ -12,11 +12,12 @@ on:
         required: false
         default: "main"
         type: string
-  schedule:
-    - cron: "0 23 * * *" # 09:00 AEST / 10:00 AEDT
   push:
     tags:
-      - "20*"
+      # Deliberately loose: catches unpadded tags (2026.8.19) so they can be
+      # normalised rather than silently ignored. Strict validation happens in
+      # the prepare job.
+      - "20[0-9][0-9].[0-9]*.[0-9]*"
 
 permissions:
   contents: write
@@ -27,10 +28,13 @@ concurrency:
 
 # ── Prepare ────────────────────────────────────────────────────────────────────
 # Resolves version, validates format, and finds or creates the draft release.
-# Supports three paths:
+# Supports two paths:
 #   1. workflow_dispatch - use supplied version; reuse existing draft if found.
-#   2. schedule - find today's draft (AEST) and publish it.
-#   3. push tag - publish directly from the tag.
+#   2. push tag - publish directly from the tag (YYYY.MM.DD[.N]).
+#
+# Versions are normalised to zero-padded YYYY.MM.DD[.N]. A tag pushed unpadded
+# (2026.8.19) is released as 2026.08.19 and the unpadded tag is deleted, so tag
+# ordering stays correct - "2026.8.19" sorts after "2026.08.24" in git.
 jobs:
   prepare:
     runs-on: ubuntu-latest
@@ -40,6 +44,7 @@ jobs:
       ref:            ${{ steps.release.outputs.ref }}
       release_id:     ${{ steps.release.outputs.release_id }}
       from_draft:     ${{ steps.release.outputs.from_draft }}
+      source_tag:     ${{ steps.release.outputs.source_tag }}
     steps:
       - name: Resolve release
         id: release
@@ -53,81 +58,88 @@ jobs:
             const repo  = context.repo.repo;
             const defaultBranch = context.payload.repository?.default_branch || 'main';
 
-            function setOutputs({ shouldRelease, version = '', ref = '', releaseId = '', fromDraft = false }) {
+            function setOutputs({ shouldRelease, version = '', ref = '', releaseId = '', fromDraft = false, sourceTag = '' }) {
               core.setOutput('should_release', shouldRelease ? 'true' : 'false');
               core.setOutput('version',        version);
               core.setOutput('ref',            ref);
               core.setOutput('release_id',     releaseId ? String(releaseId) : '');
               core.setOutput('from_draft',     fromDraft ? 'true' : 'false');
+              core.setOutput('source_tag',     sourceTag);
             }
 
-            function validateVersion(version) {
-              if (!/^20\d{2}\.\d{2}\.\d{2}(?:\.\d+)?$/.test(version)) {
-                throw new Error(`Version must be YYYY.MM.DD or YYYY.MM.DD.N - got: ${version}`);
+            // Validates and zero-pads to canonical YYYY.MM.DD[.N].
+            // Accepts 2026.8.19 or 2026.08.19; both normalise to 2026.08.19.
+            function normalizeVersion(raw) {
+              const v = String(raw ?? '').trim();
+              const m = /^(20\d{2})\.(\d{1,2})\.(\d{1,2})(?:\.(\d+))?$/.exec(v);
+              if (!m) {
+                throw new Error(`Version must be YYYY.M.D or YYYY.M.D.N - got: ${v}`);
               }
-              const [y, m, d] = version.split('.').slice(0, 3).map(Number);
-              const date = new Date(Date.UTC(y, m - 1, d));
-              if (date.getUTCFullYear() !== y || date.getUTCMonth() !== m - 1 || date.getUTCDate() !== d) {
-                throw new Error(`Version is not a valid calendar date: ${version}`);
+              const [, y, mo, d, patch] = m;
+              const year = Number(y), month = Number(mo), day = Number(d);
+              const date = new Date(Date.UTC(year, month - 1, day));
+              if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) {
+                throw new Error(`Version is not a valid calendar date: ${v}`);
               }
-              const parts = version.split('.');
-              if (parts.length === 4 && Number(parts[3]) === 0) {
+              if (patch !== undefined && Number(patch) === 0) {
                 throw new Error('Same-day release suffix must be greater than zero.');
               }
+              const pad = (n) => String(n).padStart(2, '0');
+              const base = `${year}.${pad(month)}.${pad(day)}`;
+              return patch === undefined ? base : `${base}.${Number(patch)}`;
             }
-
-            function baseDate(v) { return v.split('.').slice(0, 3).join('.'); }
 
             async function allReleases() {
               return github.paginate(github.rest.repos.listReleases, { owner, repo, per_page: 100 });
             }
 
-            // ── scheduled run ────────────────────────────────────────────────
-            if (context.eventName === 'schedule') {
-              const parts = new Intl.DateTimeFormat('en-AU', {
-                timeZone: 'Australia/Melbourne',
-                year: 'numeric', month: '2-digit', day: '2-digit',
-              }).formatToParts(new Date());
-              const p = (t) => parts.find(x => x.type === t).value;
-              const today = `${p('year')}.${p('month')}.${p('day')}`;
-
-              const drafts = (await allReleases())
-                .filter(r => r.draft)
-                .filter(r => { try { validateVersion(r.tag_name); return baseDate(r.tag_name) === today; } catch { return false; } })
-                .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-
-              if (!drafts.length) {
-                core.notice(`No draft release found for ${today}; nothing to publish.`);
-                setOutputs({ shouldRelease: false });
-                return;
-              }
-              if (drafts.length > 1) core.warning(`Multiple drafts match ${today}; using newest: ${drafts[0].tag_name}`);
-
-              const draft = drafts[0];
-              setOutputs({ shouldRelease: true, version: draft.tag_name,
-                ref: draft.target_commitish || defaultBranch, releaseId: draft.id, fromDraft: true });
-              return;
+            // Resolves a tag to the commit SHA it points at, unwrapping
+            // annotated tags. The canonical tag may not exist yet, so the
+            // build and the new release must both anchor to a real commit.
+            async function tagCommitSha(tag) {
+              const { data: ref } = await github.rest.git.getRef({ owner, repo, ref: `tags/${tag}` });
+              if (ref.object.type !== 'tag') return ref.object.sha;
+              const { data: obj } = await github.rest.git.getTag({ owner, repo, tag_sha: ref.object.sha });
+              return obj.object.sha;
             }
 
             // ── push tag ─────────────────────────────────────────────────────
-            const version = context.eventName === 'push'
-              ? context.ref.replace('refs/tags/', '')
-              : process.env.INPUT_VERSION;
-
-            validateVersion(version);
-
             if (context.eventName === 'push') {
-              setOutputs({ shouldRelease: true, version, ref: version, fromDraft: false });
+              const sourceTag = context.ref.replace('refs/tags/', '');
+              const version   = normalizeVersion(sourceTag);
+
+              if (sourceTag !== version) {
+                core.warning(`Tag ${sourceTag} is not zero-padded; releasing as ${version} and removing ${sourceTag}.`);
+              }
+
+              setOutputs({ shouldRelease: true, version, ref: await tagCommitSha(sourceTag),
+                fromDraft: false, sourceTag });
               return;
             }
 
             // ── workflow_dispatch ─────────────────────────────────────────────
-            const draft = (await allReleases()).find(r => r.draft && r.tag_name === version);
+            const version = normalizeVersion(process.env.INPUT_VERSION);
+
+            const draft = (await allReleases()).find(r => {
+              if (!r.draft) return false;
+              try { return normalizeVersion(r.tag_name) === version; } catch { return false; }
+            });
+
             if (draft) {
+              // A draft's tag does not exist in git yet, so renaming it to the
+              // canonical form is free - and required, or the publish job would
+              // attach assets to a second release instead of this draft.
+              if (draft.tag_name !== version) {
+                core.notice(`Renaming draft tag ${draft.tag_name} to ${version}.`);
+                await github.rest.repos.updateRelease({
+                  owner, repo, release_id: draft.id, tag_name: version,
+                });
+              }
               setOutputs({ shouldRelease: true, version, ref: draft.target_commitish || defaultBranch,
                 releaseId: draft.id, fromDraft: true });
               return;
             }
+
             setOutputs({ shouldRelease: true, version, ref: process.env.INPUT_REF || defaultBranch, fromDraft: false });
 
 # ── Build ──────────────────────────────────────────────────────────────────────
@@ -353,3 +365,36 @@ jobs:
           make_latest:          true
           fail_on_unmatched_files: true
           files: release-assets/**/*
+
+      # ── Remove the unpadded tag ────────────────────────────────────────────
+      # Only runs when the pushed tag differed from its canonical form. The
+      # canonical tag now exists on the same commit, so the sloppy one is
+      # redundant and would sort incorrectly against future releases.
+      - name: Remove unpadded source tag
+        if: >-
+          needs.prepare.outputs.source_tag != '' &&
+          needs.prepare.outputs.source_tag != needs.prepare.outputs.version
+        uses: actions/github-script@v7
+        env:
+          SOURCE_TAG: ${{ needs.prepare.outputs.source_tag }}
+          VERSION:    ${{ needs.prepare.outputs.version }}
+        with:
+          script: |
+            const sourceTag = process.env.SOURCE_TAG;
+            const version   = process.env.VERSION;
+            try {
+              await github.rest.git.getRef({
+                owner: context.repo.owner, repo: context.repo.repo, ref: `tags/${version}`,
+              });
+            } catch {
+              core.warning(`Canonical tag ${version} not found; keeping ${sourceTag}.`);
+              return;
+            }
+            try {
+              await github.rest.git.deleteRef({
+                owner: context.repo.owner, repo: context.repo.repo, ref: `tags/${sourceTag}`,
+              });
+              core.notice(`Removed unpadded tag ${sourceTag}; canonical tag is ${version}.`);
+            } catch (error) {
+              core.warning(`Could not delete tag ${sourceTag}: ${error.message}`);
+            }
